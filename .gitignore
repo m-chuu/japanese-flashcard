@@ -1,0 +1,14 @@
+# Python
+backend/myenv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+backend/.env
+
+# Node / Electron
+frontend/node_modules/
+frontend/dist/
+frontend/dist-electron/
+
+# Misc
+.DS_Store

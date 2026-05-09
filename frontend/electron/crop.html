@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        cursor: crosshair;
+        user-select: none;
+      }
+
+      #screenshot {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: fill;
+      }
+
+      #overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        pointer-events: none;
+      }
+
+      #selection {
+        position: absolute;
+        border: 2px solid #6366f1;
+        background: rgba(99, 102, 241, 0.15);
+        pointer-events: none;
+        display: none;
+      }
+
+      #start-dot {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background: #6366f1;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        display: none;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.35);
+      }
+
+      /* Capture button — appears at bottom-right of selection after 2nd click */
+      #capture-btn {
+        position: absolute;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        background: #6366f1;
+        color: #fff;
+        font-family: -apple-system, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 7px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        z-index: 10;
+        white-space: nowrap;
+      }
+      #capture-btn:hover { background: #4f46e5; }
+
+      /* Redo button next to capture */
+      #redo-btn {
+        position: absolute;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        background: rgba(0,0,0,0.65);
+        color: #fff;
+        font-family: -apple-system, sans-serif;
+        font-size: 13px;
+        padding: 7px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        z-index: 10;
+        white-space: nowrap;
+      }
+      #redo-btn:hover { background: rgba(0,0,0,0.85); }
+
+      #hint {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.72);
+        color: #fff;
+        font-family: -apple-system, sans-serif;
+        font-size: 13px;
+        padding: 8px 18px;
+        border-radius: 8px;
+        pointer-events: none;
+        white-space: nowrap;
+        transition: opacity 0.2s;
+      }
+    </style>
+  </head>
+  <body>
+    <img id="screenshot" alt="" />
+    <div id="overlay"></div>
+    <div id="selection"></div>
+    <div id="start-dot"></div>
+    <div id="capture-btn">📷 Capture</div>
+    <div id="redo-btn">↺ Redo</div>
+    <div id="hint">① Click top-left corner of Japanese text · ESC to cancel</div>
+
+    <script>
+      const screenshot  = document.getElementById('screenshot')
+      const selection   = document.getElementById('selection')
+      const startDot    = document.getElementById('start-dot')
+      const captureBtn  = document.getElementById('capture-btn')
+      const redoBtn     = document.getElementById('redo-btn')
+      const hint        = document.getElementById('hint')
+
+      let startX = 0, startY = 0, endX = 0, endY = 0
+      let firstClicked = false, confirmed = false
+
+      // Saved rect for capture
+      let savedRect = null
+
+      window.electronAPI.onScreenshot((dataURL) => {
+        screenshot.src = dataURL
+      })
+
+      function reset() {
+        firstClicked    = false
+        confirmed       = false
+        savedRect       = null
+        startDot.style.display  = 'none'
+        selection.style.display = 'none'
+        captureBtn.style.display = 'none'
+        redoBtn.style.display    = 'none'
+        hint.style.opacity = '1'
+        hint.textContent = '① Click top-left corner of Japanese text · ESC to cancel'
+        document.body.style.cursor = 'crosshair'
+      }
+
+      function showButtons(x, y, w, h) {
+        const btnY = y + h + 8
+        const btnX = x + w   // right edge of selection
+
+        // Capture button — anchored to bottom-right
+        captureBtn.style.left = (btnX - 130) + 'px'
+        captureBtn.style.top  = btnY + 'px'
+        captureBtn.style.display = 'flex'
+
+        // Redo button — just to the left of capture
+        redoBtn.style.left = (btnX - 130 - 80) + 'px'
+        redoBtn.style.top  = btnY + 'px'
+        redoBtn.style.display = 'flex'
+      }
+
+      document.addEventListener('mousemove', (e) => {
+        if (!firstClicked || confirmed) return
+        const x = Math.min(e.clientX, startX)
+        const y = Math.min(e.clientY, startY)
+        const w = Math.abs(e.clientX - startX)
+        const h = Math.abs(e.clientY - startY)
+        selection.style.left    = x + 'px'
+        selection.style.top     = y + 'px'
+        selection.style.width   = w + 'px'
+        selection.style.height  = h + 'px'
+        selection.style.display = 'block'
+      })
+
+      document.addEventListener('click', (e) => {
+        // Ignore clicks on the action buttons
+        if (e.target === captureBtn || e.target === redoBtn) return
+        if (confirmed) return
+
+        if (!firstClicked) {
+          startX = e.clientX
+          startY = e.clientY
+          firstClicked = true
+
+          startDot.style.left    = startX + 'px'
+          startDot.style.top     = startY + 'px'
+          startDot.style.display = 'block'
+          hint.textContent = '② Click bottom-right corner · ESC to cancel'
+        } else {
+          endX = e.clientX
+          endY = e.clientY
+
+          const x = Math.min(endX, startX)
+          const y = Math.min(endY, startY)
+          const w = Math.abs(endX - startX)
+          const h = Math.abs(endY - startY)
+
+          if (w > 10 && h > 10) {
+            confirmed = true
+            savedRect = { x, y, width: w, height: h }
+
+            // Lock the selection box
+            selection.style.left   = x + 'px'
+            selection.style.top    = y + 'px'
+            selection.style.width  = w + 'px'
+            selection.style.height = h + 'px'
+
+            hint.style.opacity = '0'          // hide hint
+            document.body.style.cursor = 'default'
+            showButtons(x, y, w, h)
+          } else {
+            reset()
+          }
+        }
+      })
+
+      captureBtn.addEventListener('click', () => {
+        if (savedRect) window.electronAPI.cropSelected(savedRect)
+      })
+
+      redoBtn.addEventListener('click', () => {
+        reset()
+      })
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') window.electronAPI.cropCancelled()
+      })
+    </script>
+  </body>
+</html>
