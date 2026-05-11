@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from database import get_db
@@ -12,7 +12,10 @@ router = APIRouter()
 
 
 @router.get("/due", response_model=List[schemas.CardResponse])
-def get_due_cards(db: Session = Depends(get_db)):
+def get_due_cards(
+    card_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
     now = datetime.utcnow()
     due_reviews = (
         db.query(models.Review)
@@ -20,7 +23,10 @@ def get_due_cards(db: Session = Depends(get_db)):
         .all()
     )
     card_ids = [r.card_id for r in due_reviews]
-    return db.query(models.Card).filter(models.Card.id.in_(card_ids)).all()
+    query = db.query(models.Card).filter(models.Card.id.in_(card_ids))
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
+    return query.all()
 
 
 @router.post("/", response_model=schemas.ReviewResponse)

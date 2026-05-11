@@ -1,10 +1,15 @@
 import axios from 'axios'
-import type { Card, JishoLookup } from '../types'
+import type { Card, JishoLookup, EnglishLookup } from '../types'
 
 const api = axios.create({ baseURL: 'http://localhost:8000' })
 
-export const getCards = (jlptLevel?: string) =>
-  api.get<Card[]>('/cards/', { params: jlptLevel ? { jlpt_level: jlptLevel } : {} })
+export const getCards = (jlptLevel?: string, cardType?: string) =>
+  api.get<Card[]>('/cards/', {
+    params: {
+      ...(jlptLevel ? { jlpt_level: jlptLevel } : {}),
+      ...(cardType ? { card_type: cardType } : {}),
+    },
+  })
 
 export const getCard = (id: number) => api.get<Card>(`/cards/${id}`)
 
@@ -18,7 +23,11 @@ export const deleteCard = (id: number) => api.delete(`/cards/${id}`)
 export const lookupWord = (word: string) =>
   api.get<JishoLookup>(`/cards/lookup/${encodeURIComponent(word)}`)
 
-export const getDueCards = () => api.get<Card[]>('/reviews/due')
+export const lookupEnglishWord = (word: string) =>
+  api.get<EnglishLookup>(`/cards/english-lookup/${encodeURIComponent(word)}`)
+
+export const getDueCards = (cardType?: string) =>
+  api.get<Card[]>('/reviews/due', { params: cardType ? { card_type: cardType } : {} })
 
 export const submitReview = (cardId: number, quality: number) =>
   api.post('/reviews/', { card_id: cardId, quality })

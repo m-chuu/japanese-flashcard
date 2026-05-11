@@ -4,6 +4,7 @@ import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import Study from './pages/Study'
 import AddCard from './pages/AddCard'
+import AddEnglishCard from './pages/AddEnglishCard'
 import { extractText } from './api/client'
 
 type Status = { type: 'processing' | 'error'; message: string } | null
@@ -76,6 +77,7 @@ function AppContent() {
           <Route path="/study" element={<Study />} />
           <Route path="/add" element={<AddCard />} />
           <Route path="/edit/:id" element={<AddCard />} />
+          <Route path="/add-english" element={<AddEnglishCard />} />
         </Routes>
       </main>
     </div>

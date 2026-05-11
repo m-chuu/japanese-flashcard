@@ -8,6 +8,7 @@ class Card(Base):
     __tablename__ = "cards"
 
     id = Column(Integer, primary_key=True, index=True)
+    card_type = Column(String(20), default="japanese")
     japanese = Column(String(255), nullable=False)
     furigana = Column(String(255), default="")
     english = Column(Text, default="")

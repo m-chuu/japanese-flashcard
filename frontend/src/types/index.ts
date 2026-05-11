@@ -1,5 +1,6 @@
 export interface Card {
   id: number
+  card_type: string
   japanese: string
   furigana: string
   english: string
@@ -7,6 +8,16 @@ export interface Card {
   synonym: string
   jlpt_level: string
   created_at: string
+}
+
+export interface EnglishLookup {
+  found: boolean
+  word?: string
+  phonetic?: string
+  definition?: string
+  example?: string
+  synonyms?: string
+  part_of_speech?: string
 }
 
 export interface Review {

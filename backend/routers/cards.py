@@ -38,11 +38,64 @@ async def lookup_word(word: str):
     }
 
 
+@router.get("/english-lookup/{word}")
+async def lookup_english_word(word: str):
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+        )
+    if response.status_code != 200:
+        return {"found": False}
+
+    data = response.json()
+    if not data or not isinstance(data, list):
+        return {"found": False}
+
+    entry = data[0]
+    phonetic = entry.get("phonetic", "")
+    if not phonetic:
+        for p in entry.get("phonetics", []):
+            if p.get("text"):
+                phonetic = p["text"]
+                break
+
+    definition = ""
+    example = ""
+    synonyms: list[str] = []
+    part_of_speech = ""
+
+    for meaning in entry.get("meanings", []):
+        if not part_of_speech:
+            part_of_speech = meaning.get("partOfSpeech", "")
+        for defn in meaning.get("definitions", []):
+            if not definition:
+                definition = defn.get("definition", "")
+            if not example:
+                example = defn.get("example", "")
+        synonyms.extend(meaning.get("synonyms", []))
+
+    return {
+        "found": True,
+        "word": entry.get("word", word),
+        "phonetic": phonetic,
+        "definition": definition,
+        "example": example,
+        "synonyms": ", ".join(synonyms[:5]),
+        "part_of_speech": part_of_speech,
+    }
+
+
 @router.get("/", response_model=List[schemas.CardResponse])
-def get_cards(jlpt_level: Optional[str] = None, db: Session = Depends(get_db)):
+def get_cards(
+    jlpt_level: Optional[str] = None,
+    card_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     query = db.query(models.Card)
     if jlpt_level:
         query = query.filter(models.Card.jlpt_level == jlpt_level)
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
     return query.order_by(models.Card.created_at.desc()).all()
 
 

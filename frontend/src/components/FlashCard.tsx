@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Card } from '../types'
+import YouGlishWidget from './YouGlishWidget'
 
 interface Props {
   card: Card
@@ -13,19 +14,76 @@ const ratings = [
   { label: 'Easy',  quality: 5, style: 'bg-blue-100 text-blue-700 hover:bg-blue-200' },
 ]
 
+function JapaneseCard({ card }: { card: Card }) {
+  return (
+    <>
+      {/* Front */}
+      <div className="absolute inset-0 bg-white rounded-2xl shadow-md flex flex-col items-center justify-center gap-2 [backface-visibility:hidden]">
+        <p className="text-6xl font-bold text-gray-900">{card.japanese}</p>
+        <p className="text-xs text-gray-400 mt-2">tap to reveal</p>
+      </div>
+
+      {/* Back */}
+      <div className="absolute inset-0 bg-indigo-50 rounded-2xl shadow-md flex flex-col items-center justify-center px-8 gap-3 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+        {card.furigana && (
+          <p className="text-2xl text-indigo-500 font-medium">{card.furigana}</p>
+        )}
+        <p className="text-xl text-gray-800 font-semibold text-center">{card.english}</p>
+        {card.example_sentence && (
+          <p className="text-sm text-gray-500 text-center italic">{card.example_sentence}</p>
+        )}
+        {card.synonym && (
+          <p className="text-xs text-gray-400">≈ {card.synonym}</p>
+        )}
+      </div>
+    </>
+  )
+}
+
+function EnglishCard({ card, flipped }: { card: Card; flipped: boolean }) {
+  return (
+    <>
+      {/* Front */}
+      <div className="absolute inset-0 bg-white rounded-2xl shadow-md flex flex-col items-center justify-center gap-2 [backface-visibility:hidden]">
+        <p className="text-5xl font-bold text-gray-900 text-center px-4">{card.japanese}</p>
+        {card.furigana && (
+          <p className="text-sm text-gray-400">{card.furigana}</p>
+        )}
+        <p className="text-xs text-gray-400 mt-2">tap to reveal</p>
+      </div>
+
+      {/* Back — taller to fit the YouGlish widget */}
+      <div className="absolute inset-0 bg-emerald-50 rounded-2xl shadow-md flex flex-col items-start justify-start px-6 py-5 gap-2 overflow-y-auto [backface-visibility:hidden] [transform:rotateY(180deg)]">
+        <p className="text-lg text-gray-800 font-semibold leading-snug">{card.english}</p>
+        {card.example_sentence && (
+          <p className="text-sm text-gray-500 italic">"{card.example_sentence}"</p>
+        )}
+        {card.synonym && (
+          <p className="text-xs text-gray-400">≈ {card.synonym}</p>
+        )}
+        {flipped && <YouGlishWidget word={card.japanese} />}
+      </div>
+    </>
+  )
+}
+
 export default function FlashCard({ card, onQuality }: Props) {
   const [flipped, setFlipped] = useState(false)
+  const isEnglish = card.card_type === 'english'
 
   const handleQuality = (q: number) => {
     setFlipped(false)
     onQuality(q)
   }
 
+  // English cards need more height for the YouGlish widget
+  const cardHeight = isEnglish ? 'h-80' : 'h-64'
+
   return (
     <div className="flex flex-col items-center gap-8">
       {/* Card */}
       <div
-        className="w-full max-w-lg h-64 cursor-pointer [perspective:1000px]"
+        className={`w-full max-w-lg ${cardHeight} cursor-pointer [perspective:1000px]`}
         onClick={() => setFlipped(!flipped)}
       >
         <div
@@ -33,25 +91,10 @@ export default function FlashCard({ card, onQuality }: Props) {
             flipped ? '[transform:rotateY(180deg)]' : ''
           }`}
         >
-          {/* Front */}
-          <div className="absolute inset-0 bg-white rounded-2xl shadow-md flex flex-col items-center justify-center gap-2 [backface-visibility:hidden]">
-            <p className="text-6xl font-bold text-gray-900">{card.japanese}</p>
-            <p className="text-xs text-gray-400 mt-2">tap to reveal</p>
-          </div>
-
-          {/* Back */}
-          <div className="absolute inset-0 bg-indigo-50 rounded-2xl shadow-md flex flex-col items-center justify-center px-8 gap-3 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-            {card.furigana && (
-              <p className="text-2xl text-indigo-500 font-medium">{card.furigana}</p>
-            )}
-            <p className="text-xl text-gray-800 font-semibold text-center">{card.english}</p>
-            {card.example_sentence && (
-              <p className="text-sm text-gray-500 text-center italic">{card.example_sentence}</p>
-            )}
-            {card.synonym && (
-              <p className="text-xs text-gray-400">≈ {card.synonym}</p>
-            )}
-          </div>
+          {isEnglish
+            ? <EnglishCard card={card} flipped={flipped} />
+            : <JapaneseCard card={card} />
+          }
         </div>
       </div>
 

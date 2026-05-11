@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 const links = [
   { to: '/', label: 'Cards' },
   { to: '/study', label: 'Study' },
-  { to: '/add', label: '+ Add Card' },
+  { to: '/add', label: '+ JP Card' },
+  { to: '/add-english', label: '+ EN Card' },
 ]
 
 export default function Navbar() {
@@ -13,7 +14,7 @@ export default function Navbar() {
     <nav className="bg-white border-b border-gray-200">
       <div className="container mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
         <Link to="/" className="text-xl font-bold text-indigo-700 tracking-tight">
-          日本語 FlashCards
+          FlashCards 🇯🇵🇬🇧
         </Link>
         <div className="flex gap-6">
           {links.map(({ to, label }) => (

@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 class CardCreate(BaseModel):
+    card_type: Optional[str] = "japanese"
     japanese: str
     furigana: Optional[str] = ""
     english: Optional[str] = ""

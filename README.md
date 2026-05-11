@@ -1,6 +1,6 @@
-# Japanese FlashCard
+# Japanese & English FlashCards
 
-A Japanese vocabulary flashcard desktop app with screen OCR capture. Press a global shortcut from anywhere on your Mac, select a region of Japanese text on screen, and the word is automatically extracted and pre-filled into a new flashcard — complete with furigana, English meaning, and JLPT level from Jisho.
+A vocabulary flashcard desktop app with screen OCR capture for Japanese, and Free Dictionary + YouGlish pronunciation for English. Press a global shortcut from anywhere on your Mac, select a region of Japanese text on screen, and the word is automatically extracted and pre-filled into a new flashcard — complete with furigana, English meaning, and JLPT level from Jisho.
 
 ---
 
@@ -8,8 +8,11 @@ A Japanese vocabulary flashcard desktop app with screen OCR capture. Press a glo
 
 - **Screen OCR capture** — `Option+Cmd+1` from anywhere on the desktop opens a region-select overlay; two clicks select the area; the cropped image is sent to EasyOCR and the extracted Japanese text pre-fills the Add Card form
 - **Jisho auto-lookup** — after OCR, the app queries the Jisho.org API to auto-fill furigana, English meaning, and JLPT level
+- **English flashcards** — separate English deck backed by the Free Dictionary API (no key); type any English word and click Lookup to auto-fill definition, IPA phonetic, example sentence, and synonyms
+- **YouGlish pronunciation** — English card backs embed the YouGlish JS widget so you can hear native pronunciation in context from real YouTube videos
 - **SM-2 spaced repetition** — the Study page schedules cards using the same algorithm as Anki (Again / Hard / Good / Easy buttons, 0–5 quality scale)
-- **JLPT filtering** — cards are tagged N5 → N1 or Unknown; the home page filters by level
+- **Separate study decks** — choose Japanese or English at the start of each study session
+- **JLPT filtering** — Japanese cards are tagged N5 → N1 or Unknown; the home page filters by level
 - **Edit / delete** — all cards are editable after creation
 
 ---
@@ -24,7 +27,9 @@ A Japanese vocabulary flashcard desktop app with screen OCR capture. Press a glo
 | Backend | FastAPI + Uvicorn |
 | Database | MySQL 9 via SQLAlchemy 2 + PyMySQL |
 | OCR | EasyOCR (Japanese + English, CPU) |
-| Dictionary | Jisho.org REST API (free, no key) |
+| JP Dictionary | Jisho.org REST API (free, no key) |
+| EN Dictionary | Free Dictionary API — api.dictionaryapi.dev (free, no key) |
+| Pronunciation | YouGlish JS widget (free, no key) |
 | SRS algorithm | SM-2 |
 
 ---
@@ -43,8 +48,8 @@ Japanese FlashCard/
 │   ├── schemas.py            # Pydantic request/response schemas
 │   ├── srs.py                # SM-2 algorithm
 │   └── routers/
-│       ├── cards.py          # CRUD + Jisho lookup
-│       ├── reviews.py        # SRS due-cards + submit review
+│       ├── cards.py          # CRUD + Jisho lookup + English lookup
+│       ├── reviews.py        # SRS due-cards (filterable by deck) + submit review
 │       └── ocr.py            # Image upload → EasyOCR → text
 │
 └── frontend/
@@ -57,15 +62,17 @@ Japanese FlashCard/
     │   ├── App.tsx           # Router, OCR event listener
     │   ├── api/client.ts     # Axios wrappers for all API calls
     │   ├── types/
-    │   │   ├── index.ts      # Card, Review, JishoLookup, JLPT_LEVELS
+    │   │   ├── index.ts      # Card, Review, JishoLookup, EnglishLookup, JLPT_LEVELS
     │   │   └── electron.d.ts # window.electronAPI type declaration
     │   ├── components/
     │   │   ├── Navbar.tsx
-    │   │   └── FlashCard.tsx # 3D flip card + rating buttons
+    │   │   ├── FlashCard.tsx     # 3D flip card — JP and EN layouts
+    │   │   └── YouGlishWidget.tsx # YouGlish pronunciation embed
     │   └── pages/
-    │       ├── Home.tsx      # Card grid with JLPT filter pills
-    │       ├── Study.tsx     # SRS study session with progress bar
-    │       └── AddCard.tsx   # Add / edit form with Jisho lookup
+    │       ├── Home.tsx          # JP / EN deck tabs, due-count banners, card grid
+    │       ├── Study.tsx         # Deck picker → SRS study session
+    │       ├── AddCard.tsx       # Add / edit Japanese card with Jisho lookup
+    │       └── AddEnglishCard.tsx # Add English card with Free Dictionary lookup
     ├── index.html
     ├── vite.config.ts
     ├── tailwind.config.js
@@ -81,12 +88,13 @@ Japanese FlashCard/
 | Column | Type | Notes |
 |---|---|---|
 | id | INT PK | auto-increment |
-| japanese | VARCHAR(255) | required |
-| furigana | VARCHAR(255) | hiragana reading |
-| english | TEXT | meaning / translation |
+| card_type | VARCHAR(20) | `'japanese'` or `'english'` (default `'japanese'`) |
+| japanese | VARCHAR(255) | JP word — or English word for EN cards |
+| furigana | VARCHAR(255) | hiragana reading — or IPA phonetic for EN cards |
+| english | TEXT | meaning / translation — or definition for EN cards |
 | example_sentence | TEXT | |
 | synonym | VARCHAR(500) | |
-| jlpt_level | VARCHAR(10) | N5 / N4 / N3 / N2 / N1 / Unknown |
+| jlpt_level | VARCHAR(10) | N5–N1 / Unknown — or part of speech for EN cards |
 | created_at | DATETIME | UTC |
 
 **`reviews`** (one row per card, SM-2 state)
@@ -111,6 +119,8 @@ Japanese FlashCard/
 - Node.js 18+
 - MySQL 9 (`brew install mysql` on macOS)
 
+---
+
 ### 1 — MySQL
 
 ```bash
@@ -129,6 +139,16 @@ If MySQL was installed without a root password (Homebrew default):
 ```
 DATABASE_URL=mysql+pymysql://root:@localhost:3306/japanese_flashcard
 ```
+
+**Existing database migration** — if you already have a `cards` table from before the English flashcard feature was added, run this once to add the new column:
+
+```sql
+ALTER TABLE cards ADD COLUMN card_type VARCHAR(20) DEFAULT 'japanese';
+```
+
+New databases created by `setup_db.sql` already include this column — no action needed.
+
+---
 
 ### 2 — Backend
 
@@ -151,11 +171,15 @@ Start the API server:
 uvicorn main:app --reload
 ```
 
-API runs at **http://localhost:8000** — Swagger UI at **http://localhost:8000/docs**
+The API runs at **http://localhost:8000** — Swagger UI at **http://localhost:8000/docs**
 
 > **First OCR request:** EasyOCR downloads its Japanese detection and recognition models (~500 MB). This takes 1–2 minutes and happens once. Subsequent requests are fast.
 
-### 3 — Frontend (browser only)
+---
+
+### 3 — Frontend (browser)
+
+Open a second terminal:
 
 ```bash
 cd frontend
@@ -165,18 +189,23 @@ npm run dev
 
 App runs at **http://localhost:5173**
 
-### 4 — Electron desktop app (enables global shortcut)
+> Both terminals must stay open — the backend at port 8000 and the frontend at port 5173.
 
-With the Vite dev server already running:
+---
+
+### 4 — Electron desktop app (enables global shortcut `Option+Cmd+1`)
+
+With the Vite dev server already running (step 3):
 
 ```bash
 cd frontend
 NODE_ENV=development npx electron .
 ```
 
-Or start both together:
+Or start both Vite and Electron together from one command:
 
 ```bash
+cd frontend
 npm run electron:dev
 ```
 
@@ -184,23 +213,35 @@ npm run electron:dev
 
 ---
 
+### Running order summary
+
+| Step | Command | Terminal |
+|---|---|---|
+| 1 | `brew services start mysql` | any |
+| 2 | `source backend/myenv/bin/activate && uvicorn main:app --reload` | Terminal A (keep open) |
+| 3 | `cd frontend && npm run dev` | Terminal B (keep open) |
+| 4 _(optional)_ | `NODE_ENV=development npx electron .` | Terminal C, or use `npm run electron:dev` in Terminal B instead of step 3 |
+
+---
+
 ## API Reference
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/cards/` | List all cards (optional `?jlpt_level=N5`) |
+| GET | `/cards/` | List cards (optional `?jlpt_level=N5`, `?card_type=japanese`) |
 | POST | `/cards/` | Create a card |
 | GET | `/cards/{id}` | Get one card |
 | PUT | `/cards/{id}` | Update a card |
 | DELETE | `/cards/{id}` | Delete a card |
 | GET | `/cards/lookup/{word}` | Jisho lookup — returns furigana, meaning, JLPT |
-| GET | `/reviews/due` | Cards due for review today |
+| GET | `/cards/english-lookup/{word}` | Free Dictionary lookup — returns definition, IPA, example, synonyms |
+| GET | `/reviews/due` | Cards due for review (optional `?card_type=english`) |
 | POST | `/reviews/` | Submit a review (`card_id`, `quality` 0–5) |
-| POST | `/ocr/extract` | Upload image → returns extracted text |
+| POST | `/ocr/extract` | Upload image → returns extracted Japanese text |
 
 ---
 
-## Screenshot Capture Flow
+## Screenshot Capture Flow (Japanese)
 
 ```
 Option+Cmd+1 (system-wide)
@@ -215,6 +256,21 @@ Option+Cmd+1 (system-wide)
   → Extracted text → navigate to /add with pre-filled form
   → Jisho lookup fires automatically → furigana + meaning + JLPT filled
   → Review and save
+```
+
+---
+
+## English Card Flow
+
+```
+Navbar → "+ EN Card"
+  → Type an English word → click Lookup
+  → GET /cards/english-lookup/{word} → api.dictionaryapi.dev
+  → Fields auto-filled: IPA phonetic, part of speech, definition, example, synonyms
+  → Edit any field manually if needed → Save
+  → During study: card front shows the word
+  → Tap to flip → definition + example + YouGlish widget loads
+  → YouGlish plays YouTube clips of native speakers using the word in context
 ```
 
 ---
