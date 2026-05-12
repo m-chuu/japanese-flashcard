@@ -26,6 +26,15 @@ export const lookupWord = (word: string) =>
 export const lookupEnglishWord = (word: string) =>
   api.get<EnglishLookup>(`/cards/english-lookup/${encodeURIComponent(word)}`)
 
+export interface Stats {
+  total_cards: number
+  due_today: number
+  mastered: number
+  streak: number
+}
+
+export const getStats = () => api.get<Stats>('/reviews/stats')
+
 export const getDueCards = (cardType?: string) =>
   api.get<Card[]>('/reviews/due', { params: cardType ? { card_type: cardType } : {} })
 

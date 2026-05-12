@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from database import get_db
 import models
@@ -9,6 +10,53 @@ import schemas
 from srs import sm2
 
 router = APIRouter()
+
+
+@router.get("/stats")
+def get_stats(db: Session = Depends(get_db)):
+    total_cards = db.query(func.count(models.Card.id)).scalar() or 0
+
+    now = datetime.utcnow()
+    due_today = db.query(func.count(models.Review.id)).filter(
+        models.Review.next_review <= now
+    ).scalar() or 0
+
+    mastered = db.query(func.count(models.Review.id)).filter(
+        models.Review.interval >= 21
+    ).scalar() or 0
+
+    reviewed_dates_raw = (
+        db.query(func.date(models.Review.last_reviewed))
+        .filter(models.Review.last_reviewed.isnot(None))
+        .distinct()
+        .all()
+    )
+
+    parsed_dates = sorted(
+        {d[0] for d in reviewed_dates_raw if d[0] is not None},
+        reverse=True,
+    )
+
+    streak = 0
+    today = date.today()
+    check = today
+
+    if parsed_dates and parsed_dates[0] != today:
+        check = today - timedelta(days=1)
+
+    for d in parsed_dates:
+        if d == check:
+            streak += 1
+            check -= timedelta(days=1)
+        elif d < check:
+            break
+
+    return {
+        "total_cards": total_cards,
+        "due_today": due_today,
+        "mastered": mastered,
+        "streak": streak,
+    }
 
 
 @router.get("/due", response_model=List[schemas.CardResponse])

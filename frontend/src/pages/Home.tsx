@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getCards, deleteCard, getDueCards } from '../api/client'
+import { getCards, deleteCard, getDueCards, getStats } from '../api/client'
+import type { Stats } from '../api/client'
 import type { Card } from '../types'
 import { JLPT_LEVELS } from '../types'
 
@@ -15,6 +16,38 @@ const jlptColor: Record<string, string> = {
   Unknown: 'bg-gray-100 text-gray-500',
 }
 
+function StatCard({
+  icon,
+  label,
+  value,
+  highlight,
+}: {
+  icon: string
+  label: string
+  value: number | string
+  highlight?: boolean
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center rounded-xl border py-4 px-3 gap-1 ${
+        highlight
+          ? 'bg-indigo-50 border-indigo-200'
+          : 'bg-white border-gray-100 shadow-sm'
+      }`}
+    >
+      <span className="text-xl">{icon}</span>
+      <span
+        className={`text-2xl font-bold tabular-nums leading-none ${
+          highlight ? 'text-indigo-700' : 'text-gray-800'
+        }`}
+      >
+        {value}
+      </span>
+      <span className="text-xs text-gray-400 font-medium">{label}</span>
+    </div>
+  )
+}
+
 export default function Home() {
   const [deck, setDeck] = useState<DeckTab>('japanese')
   const [cards, setCards] = useState<Card[]>([])
@@ -22,9 +55,11 @@ export default function Home() {
   const [enDue, setEnDue] = useState(0)
   const [filter, setFilter] = useState('All')
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState<Stats | null>(null)
 
-  // Fetch due counts for both decks once on mount
+  // Fetch stats and due counts on mount
   useEffect(() => {
+    getStats().then((r) => setStats(r.data)).catch(() => {})
     getDueCards('japanese').then((r) => setJpDue(r.data.length))
     getDueCards('english').then((r) => setEnDue(r.data.length))
   }, [])
@@ -65,6 +100,26 @@ export default function Home() {
 
   return (
     <div>
+      {/* Stats bar */}
+      {stats && (
+        <div className="grid grid-cols-4 gap-3 mb-6">
+          <StatCard
+            icon="🔥"
+            label="Day Streak"
+            value={stats.streak}
+            highlight={stats.streak > 0}
+          />
+          <StatCard
+            icon="📚"
+            label="Due Today"
+            value={stats.due_today}
+            highlight={stats.due_today > 0}
+          />
+          <StatCard icon="✅" label="Mastered" value={stats.mastered} />
+          <StatCard icon="🗂" label="Total Cards" value={stats.total_cards} />
+        </div>
+      )}
+
       {/* Due-cards banner */}
       {totalDue > 0 && (
         <div className="mb-5 flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-3 gap-4 flex-wrap">
