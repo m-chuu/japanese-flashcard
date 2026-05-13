@@ -66,7 +66,7 @@ export default function Study() {
 
   if (!deck) return <DeckPicker onPick={setDeck} />
 
-  if (loading) {
+  if (loading || (!done && cards.length === 0)) {
     return <p className="text-center text-gray-400 py-16">Loading…</p>
   }
 

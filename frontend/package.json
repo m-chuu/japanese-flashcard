@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
-    "electron:build": "npm run build && cross-env NODE_ENV=production electron ."
+    "electron:build": "cross-env ELECTRON=true npm run build && cross-env NODE_ENV=production electron ."
   },
   "dependencies": {
     "axios": "^1.6.0",
