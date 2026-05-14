@@ -11,20 +11,23 @@ export default function Navbar() {
   const { pathname } = useLocation()
 
   return (
-    <nav className="bg-white border-b border-gray-200">
-      <div className="container mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
-        <Link to="/" className="text-xl font-bold text-indigo-700 tracking-tight">
-          FlashCards 🇯🇵🇬🇧
+    <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-40">
+      <div className="container mx-auto max-w-5xl px-4 py-3.5 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2">
+          <span className="text-xl font-extrabold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent tracking-tight">
+            FlashCards
+          </span>
+          <span className="text-lg">🇯🇵🇬🇧</span>
         </Link>
-        <div className="flex gap-6">
+        <div className="flex gap-1">
           {links.map(({ to, label }) => (
             <Link
               key={to}
               to={to}
-              className={`text-sm font-medium transition-colors pb-0.5 ${
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
                 pathname === to
-                  ? 'text-indigo-600 border-b-2 border-indigo-600'
-                  : 'text-gray-500 hover:text-indigo-600'
+                  ? 'bg-indigo-50 text-indigo-600'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
               }`}
             >
               {label}
