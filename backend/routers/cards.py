@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import httpx
+import json
+import os
 
 from database import get_db
 import models
@@ -9,12 +11,28 @@ import schemas
 
 router = APIRouter()
 
+# Local JLPT vocab fallback (~14k words, kanji and kana keyed)
+_JLPT_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "jlpt_vocab.json")
+try:
+    with open(_JLPT_DATA_PATH, encoding="utf-8") as _f:
+        _JLPT_LOOKUP: dict[str, str] = json.load(_f)
+except Exception:
+    _JLPT_LOOKUP = {}
+
+
+def _local_jlpt(word: str, reading: str) -> str:
+    return (
+        _JLPT_LOOKUP.get(word)
+        or _JLPT_LOOKUP.get(reading)
+        or "Unknown"
+    )
+
 
 @router.get("/lookup/{word}")
 async def lookup_word(word: str):
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
-            f"https://jisho.org/api/v1/search/words",
+            "https://jisho.org/api/v1/search/words",
             params={"keyword": word},
         )
         data = response.json()
@@ -26,12 +44,18 @@ async def lookup_word(word: str):
     japanese = entry["japanese"][0]
     senses = entry["senses"][0]
 
-    jlpt_tags = [t for t in entry.get("tags", []) if t.startswith("jlpt-")]
-    jlpt_level = jlpt_tags[0].replace("jlpt-", "").upper() if jlpt_tags else "Unknown"
+    reading = japanese.get("reading", "")
+
+    # Prefer Jisho JLPT tag; fall back to local word list
+    jlpt_tags = entry.get("jlpt", [])
+    if jlpt_tags:
+        jlpt_level = jlpt_tags[0].replace("jlpt-", "").upper()
+    else:
+        jlpt_level = _local_jlpt(word, reading)
 
     return {
         "found": True,
-        "furigana": japanese.get("reading", ""),
+        "furigana": reading,
         "english": ", ".join(senses["english_definitions"]),
         "parts_of_speech": senses.get("parts_of_speech", []),
         "jlpt_level": jlpt_level,
