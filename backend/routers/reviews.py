@@ -59,6 +59,98 @@ def get_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/n1-progress")
+def get_n1_progress(db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+
+    total = db.query(func.count(models.Card.id)).filter(
+        models.Card.jlpt_level == "N1"
+    ).scalar() or 0
+
+    unlocked = (
+        db.query(func.count(models.Review.id))
+        .join(models.Card, models.Card.id == models.Review.card_id)
+        .filter(models.Card.jlpt_level == "N1", models.Review.next_review <= now)
+        .scalar() or 0
+    )
+
+    mastered = (
+        db.query(func.count(models.Review.id))
+        .join(models.Card, models.Card.id == models.Review.card_id)
+        .filter(models.Card.jlpt_level == "N1", models.Review.interval >= 21)
+        .scalar() or 0
+    )
+
+    due_today = (
+        db.query(func.count(models.Review.id))
+        .join(models.Card, models.Card.id == models.Review.card_id)
+        .filter(models.Card.jlpt_level == "N1", models.Review.next_review <= now)
+        .scalar() or 0
+    )
+
+    # Today's brand-new words (unlocked today, never reviewed)
+    todays_new = (
+        db.query(models.Card)
+        .join(models.Review, models.Card.id == models.Review.card_id)
+        .filter(
+            models.Card.jlpt_level == "N1",
+            models.Review.next_review >= today,
+            models.Review.next_review < tomorrow,
+            models.Review.repetitions == 0,
+        )
+        .all()
+    )
+
+    # Upcoming 7 days of new words
+    upcoming = []
+    for offset in range(1, 8):
+        day_start = today + timedelta(days=offset)
+        day_end = day_start + timedelta(days=1)
+        count = (
+            db.query(func.count(models.Review.id))
+            .join(models.Card, models.Card.id == models.Review.card_id)
+            .filter(
+                models.Card.jlpt_level == "N1",
+                models.Review.next_review >= day_start,
+                models.Review.next_review < day_end,
+                models.Review.repetitions == 0,
+            )
+            .scalar() or 0
+        )
+        upcoming.append({"day_offset": offset, "new_words": count})
+
+    # Determine current day in schedule
+    earliest = (
+        db.query(func.min(models.Review.next_review))
+        .join(models.Card, models.Card.id == models.Review.card_id)
+        .filter(models.Card.jlpt_level == "N1")
+        .scalar()
+    )
+    current_day = 0
+    if earliest:
+        start = earliest.replace(hour=0, minute=0, second=0, microsecond=0)
+        current_day = max(1, (today - start).days + 1)
+
+    total_days = (total + 9) // 10
+
+    return {
+        "total": total,
+        "unlocked": unlocked,
+        "locked": total - unlocked,
+        "mastered": mastered,
+        "due_today": due_today,
+        "current_day": current_day,
+        "total_days": total_days,
+        "todays_new_words": [
+            {"id": c.id, "japanese": c.japanese, "furigana": c.furigana, "english": c.english}
+            for c in todays_new
+        ],
+        "upcoming": upcoming,
+    }
+
+
 @router.get("/due", response_model=List[schemas.CardResponse])
 def get_due_cards(
     card_type: Optional[str] = Query(None),

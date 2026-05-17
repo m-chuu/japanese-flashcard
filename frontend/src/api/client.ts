@@ -41,6 +41,27 @@ export const getDueCards = (cardType?: string) =>
 export const submitReview = (cardId: number, quality: number) =>
   api.post('/reviews/', { card_id: cardId, quality })
 
+export interface N1WordPreview {
+  id: number
+  japanese: string
+  furigana: string
+  english: string
+}
+
+export interface N1Progress {
+  total: number
+  unlocked: number
+  locked: number
+  mastered: number
+  due_today: number
+  current_day: number
+  total_days: number
+  todays_new_words: N1WordPreview[]
+  upcoming: { day_offset: number; new_words: number }[]
+}
+
+export const getN1Progress = () => api.get<N1Progress>('/reviews/n1-progress')
+
 export async function extractText(dataURL: string): Promise<string> {
   const blob = dataURLToBlob(dataURL)
   const form = new FormData()

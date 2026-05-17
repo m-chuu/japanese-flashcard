@@ -173,6 +173,12 @@ uvicorn main:app --reload
 
 The API runs at **http://localhost:8000** — Swagger UI at **http://localhost:8000/docs**
 
+> **Port already in use?** If you see `[Errno 48] Address already in use`, kill whatever is occupying port 8000 and restart:
+> ```bash
+> lsof -ti:8000 | xargs kill -9
+> uvicorn main:app --reload
+> ```
+
 > **First OCR request:** EasyOCR downloads its Japanese detection and recognition models (~500 MB). This takes 1–2 minutes and happens once. Subsequent requests are fast.
 
 ---
