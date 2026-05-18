@@ -40,7 +40,7 @@ function JapaneseCard({ card }: { card: Card }) {
   )
 }
 
-function EnglishCard({ card, flipped }: { card: Card; flipped: boolean }) {
+function EnglishCard({ card }: { card: Card }) {
   return (
     <>
       {/* Front */}
@@ -52,8 +52,8 @@ function EnglishCard({ card, flipped }: { card: Card; flipped: boolean }) {
         <p className="text-xs text-gray-400 mt-2">tap to reveal</p>
       </div>
 
-      {/* Back — taller to fit the YouGlish widget */}
-      <div className="absolute inset-0 bg-emerald-50 rounded-2xl shadow-md flex flex-col items-start justify-start px-6 py-5 gap-2 overflow-y-auto [backface-visibility:hidden] [transform:rotateY(180deg)]">
+      {/* Back */}
+      <div className="absolute inset-0 bg-emerald-50 rounded-2xl shadow-md flex flex-col items-start justify-center px-6 py-5 gap-2 [backface-visibility:hidden] [transform:rotateY(180deg)]">
         <p className="text-lg text-gray-800 font-semibold leading-snug">{card.english}</p>
         {card.example_sentence && (
           <p className="text-sm text-gray-500 italic">"{card.example_sentence}"</p>
@@ -61,7 +61,6 @@ function EnglishCard({ card, flipped }: { card: Card; flipped: boolean }) {
         {card.synonym && (
           <p className="text-xs text-gray-400">≈ {card.synonym}</p>
         )}
-        {flipped && <YouGlishWidget word={card.japanese} />}
       </div>
     </>
   )
@@ -76,14 +75,11 @@ export default function FlashCard({ card, onQuality }: Props) {
     onQuality(q)
   }
 
-  // English cards need more height for the YouGlish widget
-  const cardHeight = isEnglish ? 'h-80' : 'h-64'
-
   return (
-    <div className="flex flex-col items-center gap-8">
+    <div className="flex flex-col items-center gap-6">
       {/* Card */}
       <div
-        className={`w-full max-w-lg ${cardHeight} cursor-pointer [perspective:1000px]`}
+        className="w-full max-w-lg h-64 cursor-pointer [perspective:1000px]"
         onClick={() => setFlipped(!flipped)}
       >
         <div
@@ -92,11 +88,24 @@ export default function FlashCard({ card, onQuality }: Props) {
           }`}
         >
           {isEnglish
-            ? <EnglishCard card={card} flipped={flipped} />
+            ? <EnglishCard card={card} />
             : <JapaneseCard card={card} />
           }
         </div>
       </div>
+
+      {/* YouGlish pronunciation — shown below card after flip */}
+      {flipped && (
+        <div className="w-full max-w-lg">
+          <p className="text-xs text-gray-400 font-medium mb-1 text-center tracking-wide uppercase">
+            Pronunciation
+          </p>
+          <YouGlishWidget
+            word={card.japanese}
+            lang={isEnglish ? 'english' : 'japanese'}
+          />
+        </div>
+      )}
 
       {/* Rating buttons — only visible after flip */}
       {flipped && (

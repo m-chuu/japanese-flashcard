@@ -119,7 +119,7 @@ export default function Study() {
         </button>
       </div>
 
-      <FlashCard card={cards[index]} onQuality={handleQuality} />
+      <FlashCard key={cards[index].id} card={cards[index]} onQuality={handleQuality} />
     </div>
   )
 }

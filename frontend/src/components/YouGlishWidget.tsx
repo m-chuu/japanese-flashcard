@@ -15,9 +15,10 @@ const WIDGET_SCRIPT = 'https://youglish.com/public/emb/widget.js'
 
 interface Props {
   word: string
+  lang?: 'english' | 'japanese'
 }
 
-export default function YouGlishWidget({ word }: Props) {
+export default function YouGlishWidget({ word, lang = 'english' }: Props) {
   const widgetRef = useRef<{ fetch: (w: string, l: string) => void; destroy: () => void } | null>(null)
   const containerId = 'youglish-widget-container'
 
@@ -30,7 +31,7 @@ export default function YouGlishWidget({ word }: Props) {
         components: 8415,
         autostart: 0,
       })
-      widgetRef.current.fetch(word, 'english')
+      widgetRef.current.fetch(word, lang)
     }
 
     const existing = document.querySelector(`script[src="${WIDGET_SCRIPT}"]`)
@@ -45,13 +46,12 @@ export default function YouGlishWidget({ word }: Props) {
       const script = document.createElement('script')
       script.src = WIDGET_SCRIPT
       script.async = true
-      script.charset = 'utf-8'
       script.addEventListener('load', initWidget, { once: true })
       document.body.appendChild(script)
     }
 
     return () => {
-      widgetRef.current?.destroy()
+      try { widgetRef.current?.destroy() } catch (_) { /* ignore cleanup errors */ }
       widgetRef.current = null
     }
   }, [word])
@@ -60,7 +60,7 @@ export default function YouGlishWidget({ word }: Props) {
     <div className="w-full mt-3">
       <div id={containerId} />
       <a
-        href={`https://youglish.com/pronounce/${encodeURIComponent(word)}/english`}
+        href={`https://youglish.com/pronounce/${encodeURIComponent(word)}/${lang}`}
         target="_blank"
         rel="noopener noreferrer"
         className="block text-center text-xs text-indigo-400 hover:text-indigo-600 mt-1"
