@@ -159,7 +159,10 @@ def get_due_cards(
     now = datetime.utcnow()
     due_reviews = (
         db.query(models.Review)
-        .filter(models.Review.next_review <= now)
+        .filter(
+            models.Review.next_review <= now,
+            models.Review.last_reviewed.is_(None),
+        )
         .all()
     )
     card_ids = [r.card_id for r in due_reviews]
@@ -167,6 +170,56 @@ def get_due_cards(
     if card_type:
         query = query.filter(models.Card.card_type == card_type)
     return query.all()
+
+
+@router.get("/learned/summary")
+def get_learned_summary(db: Session = Depends(get_db)):
+    rows = (
+        db.query(models.Card.jlpt_level, func.count(models.Review.id))
+        .join(models.Review, models.Review.card_id == models.Card.id)
+        .filter(models.Review.last_reviewed.isnot(None))
+        .group_by(models.Card.jlpt_level)
+        .all()
+    )
+    by_level = {level: count for level, count in rows}
+    levels = ["N5", "N4", "N3", "N2", "N1", "Unknown"]
+    breakdown = [{"jlpt_level": lvl, "count": by_level.get(lvl, 0)} for lvl in levels]
+    total = sum(item["count"] for item in breakdown)
+    return {"total": total, "by_level": breakdown}
+
+
+@router.get("/learned/words", response_model=List[schemas.CardResponse])
+def get_learned_words(
+    jlpt_level: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    query = (
+        db.query(models.Card)
+        .join(models.Review, models.Review.card_id == models.Card.id)
+        .filter(models.Review.last_reviewed.isnot(None))
+    )
+    if jlpt_level:
+        query = query.filter(models.Card.jlpt_level == jlpt_level)
+    return query.order_by(models.Review.last_reviewed.desc()).all()
+
+
+@router.post("/learned/{card_id}/unmark")
+def unmark_learned(card_id: int, db: Session = Depends(get_db)):
+    db_review = (
+        db.query(models.Review)
+        .filter(models.Review.card_id == card_id)
+        .first()
+    )
+    if not db_review:
+        raise HTTPException(status_code=404, detail="Review record not found")
+
+    db_review.ease_factor = 2.5
+    db_review.interval = 1
+    db_review.repetitions = 0
+    db_review.last_reviewed = None
+    db_review.next_review = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "card_id": card_id}
 
 
 @router.post("/", response_model=schemas.ReviewResponse)

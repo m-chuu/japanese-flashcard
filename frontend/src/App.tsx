@@ -6,6 +6,7 @@ import Study from './pages/Study'
 import AddCard from './pages/AddCard'
 import AddEnglishCard from './pages/AddEnglishCard'
 import N1ProgressPage from './pages/N1Progress'
+import Learned from './pages/Learned'
 import { extractText } from './api/client'
 
 type Status = { type: 'processing' | 'error'; message: string } | null
@@ -80,6 +81,7 @@ function AppContent() {
           <Route path="/edit/:id" element={<AddCard />} />
           <Route path="/add-english" element={<AddEnglishCard />} />
           <Route path="/n1" element={<N1ProgressPage />} />
+          <Route path="/learned" element={<Learned />} />
         </Routes>
       </main>
     </div>

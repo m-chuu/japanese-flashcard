@@ -4,6 +4,7 @@ const links = [
   { to: '/', label: 'Cards' },
   { to: '/study', label: 'Study' },
   { to: '/n1', label: 'N1' },
+  { to: '/learned', label: 'Learned' },
   { to: '/add', label: '+ JP Card' },
   { to: '/add-english', label: '+ EN Card' },
 ]

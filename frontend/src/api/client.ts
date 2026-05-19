@@ -62,6 +62,22 @@ export interface N1Progress {
 
 export const getN1Progress = () => api.get<N1Progress>('/reviews/n1-progress')
 
+export interface LearnedSummary {
+  total: number
+  by_level: { jlpt_level: string; count: number }[]
+}
+
+export const getLearnedSummary = () =>
+  api.get<LearnedSummary>('/reviews/learned/summary')
+
+export const getLearnedWords = (jlptLevel?: string) =>
+  api.get<Card[]>('/reviews/learned/words', {
+    params: jlptLevel ? { jlpt_level: jlptLevel } : {},
+  })
+
+export const unmarkLearned = (cardId: number) =>
+  api.post(`/reviews/learned/${cardId}/unmark`)
+
 export async function extractText(dataURL: string): Promise<string> {
   const blob = dataURLToBlob(dataURL)
   const form = new FormData()
