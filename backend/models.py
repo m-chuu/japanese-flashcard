@@ -15,6 +15,7 @@ class Card(Base):
     example_sentence = Column(Text, default="")
     synonym = Column(String(500), default="")
     jlpt_level = Column(String(10), default="Unknown")
+    note = Column(Text, default="")          # personal note jotted during study
     created_at = Column(DateTime, default=datetime.utcnow)
 
     review = relationship("Review", back_populates="card", uselist=False, cascade="all, delete-orphan")

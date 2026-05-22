@@ -15,9 +15,14 @@ class CardCreate(BaseModel):
 
 class CardResponse(CardCreate):
     id: int
+    note: Optional[str] = ""
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CardNoteUpdate(BaseModel):
+    note: str
 
 
 class ReviewCreate(BaseModel):

@@ -20,6 +20,9 @@ export const updateCard = (id: number, data: Partial<Card>) =>
 
 export const deleteCard = (id: number) => api.delete(`/cards/${id}`)
 
+export const updateCardNote = (id: number, note: string) =>
+  api.put<Card>(`/cards/${id}/note`, { note })
+
 export const lookupWord = (word: string) =>
   api.get<JishoLookup>(`/cards/lookup/${encodeURIComponent(word)}`)
 

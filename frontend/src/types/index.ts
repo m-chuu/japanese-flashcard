@@ -7,6 +7,7 @@ export interface Card {
   example_sentence: string
   synonym: string
   jlpt_level: string
+  note: string
   created_at: string
 }
 

@@ -176,7 +176,7 @@ export default function Learned() {
                       {words.map((c) => (
                         <li
                           key={c.id}
-                          className="px-5 py-3 flex items-center gap-4 group hover:bg-white transition-colors"
+                          className="px-5 py-3 flex items-start gap-4 group hover:bg-white transition-colors"
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-lg font-bold text-gray-900 truncate">
@@ -188,10 +188,15 @@ export default function Learned() {
                               )}
                             </p>
                             <p className="text-sm text-gray-500 truncate">{c.english}</p>
+                            {c.note && (
+                              <p className="mt-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words">
+                                📝 {c.note}
+                              </p>
+                            )}
                           </div>
                           <button
                             onClick={() => handleUnmark(b.jlpt_level, c.id)}
-                            className="text-xs text-gray-400 hover:text-red-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                            className="text-xs text-gray-400 hover:text-red-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
                           >
                             Unmark
                           </button>

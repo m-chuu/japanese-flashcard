@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { Card } from '../types'
+import { updateCardNote } from '../api/client'
 import YouGlishWidget from './YouGlishWidget'
 
 interface Props {
@@ -145,9 +146,27 @@ export default function FlashCard({ card, onQuality }: Props) {
   const [flipped, setFlipped] = useState(false)
   const isEnglish = card.card_type === 'english'
 
+  // Personal note — jot down something interesting about this word
+  const [note, setNote] = useState(card.note ?? '')
+  const [draft, setDraft] = useState(card.note ?? '')
+  const [editingNote, setEditingNote] = useState(false)
+  const [savingNote, setSavingNote] = useState(false)
+
   const handleQuality = (q: number) => {
     setFlipped(false)
     onQuality(q)
+  }
+
+  async function saveNote() {
+    const trimmed = draft.trim()
+    setSavingNote(true)
+    try {
+      await updateCardNote(card.id, trimmed)
+      setNote(trimmed)
+      setEditingNote(false)
+    } finally {
+      setSavingNote(false)
+    }
   }
 
   // Keyboard shortcuts: Space/Enter to flip, 1-4 to rate
@@ -188,6 +207,66 @@ export default function FlashCard({ card, onQuality }: Props) {
         >
           {isEnglish ? <EnglishCard card={card} /> : <JapaneseCard card={card} />}
         </div>
+      </div>
+
+      {/* Personal note — saved to this card, also shown on the Learned page */}
+      <div className="w-full max-w-lg">
+        {editingNote ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Something interesting about this word…"
+              rows={3}
+              className="w-full bg-transparent text-sm text-gray-700 resize-none outline-none placeholder:text-amber-400/70"
+            />
+            <div className="flex justify-end gap-1.5 mt-1">
+              <button
+                onClick={() => {
+                  setDraft(note)
+                  setEditingNote(false)
+                }}
+                className="text-xs font-semibold text-gray-400 hover:text-gray-600 px-3 py-1 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveNote}
+                disabled={savingNote}
+                className="text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1 rounded-lg transition-colors"
+              >
+                {savingNote ? 'Saving…' : 'Save note'}
+              </button>
+            </div>
+          </div>
+        ) : note ? (
+          <button
+            onClick={() => {
+              setDraft(note)
+              setEditingNote(true)
+            }}
+            className="group w-full text-left bg-amber-50 border border-amber-200 hover:border-amber-300 rounded-2xl p-3 transition-colors"
+          >
+            <span className="flex items-center text-[10px] font-bold uppercase tracking-widest text-amber-500">
+              📝 Note
+              <span className="ml-auto normal-case tracking-normal font-medium text-gray-300 group-hover:text-amber-500">
+                Edit
+              </span>
+            </span>
+            <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap break-words">{note}</p>
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setDraft('')
+              setEditingNote(true)
+            }}
+            className="w-full text-xs font-medium text-gray-400 hover:text-amber-600 border border-dashed border-gray-200 hover:border-amber-300 rounded-2xl py-2.5 transition-colors"
+          >
+            📝 Add a note
+          </button>
+        )}
       </div>
 
       {/* YouGlish pronunciation — shown below card after flip */}

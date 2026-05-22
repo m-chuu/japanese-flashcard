@@ -1,10 +1,23 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from database import engine, Base
 from routers import cards, reviews, ocr
 
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_columns():
+    """Add columns introduced after the table was first created."""
+    existing = {c["name"] for c in inspect(engine).get_columns("cards")}
+    if "note" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE cards ADD COLUMN note TEXT"))
+            conn.execute(text("UPDATE cards SET note = '' WHERE note IS NULL"))
+
+
+_ensure_columns()
 
 app = FastAPI(title="Japanese FlashCard API")
 

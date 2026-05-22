@@ -155,6 +155,19 @@ def update_card(card_id: int, card: schemas.CardCreate, db: Session = Depends(ge
     return db_card
 
 
+@router.put("/{card_id}/note", response_model=schemas.CardResponse)
+def update_card_note(
+    card_id: int, payload: schemas.CardNoteUpdate, db: Session = Depends(get_db)
+):
+    db_card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not db_card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    db_card.note = payload.note
+    db.commit()
+    db.refresh(db_card)
+    return db_card
+
+
 @router.delete("/{card_id}")
 def delete_card(card_id: int, db: Session = Depends(get_db)):
     db_card = db.query(models.Card).filter(models.Card.id == card_id).first()
