@@ -63,68 +63,35 @@ def get_stats(db: Session = Depends(get_db)):
 def get_n1_progress(db: Session = Depends(get_db)):
     now = datetime.utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow = today + timedelta(days=1)
 
-    total = db.query(func.count(models.Card.id)).filter(
-        models.Card.jlpt_level == "N1"
-    ).scalar() or 0
+    n1_cards = db.query(models.Card).filter(models.Card.jlpt_level == "N1")
+    total = n1_cards.count()
 
-    unlocked = (
-        db.query(func.count(models.Review.id))
+    n1_reviews = (
+        db.query(models.Review)
         .join(models.Card, models.Card.id == models.Review.card_id)
-        .filter(models.Card.jlpt_level == "N1", models.Review.next_review <= now)
-        .scalar() or 0
+        .filter(models.Card.jlpt_level == "N1")
     )
 
-    mastered = (
-        db.query(func.count(models.Review.id))
-        .join(models.Card, models.Card.id == models.Review.card_id)
-        .filter(models.Card.jlpt_level == "N1", models.Review.interval >= 21)
-        .scalar() or 0
-    )
+    # Unlocked = introduced to the user: either initial unlock date has passed
+    # (next_review <= now and never touched) or the card has been reviewed at
+    # least once (repetitions > 0). The previous `next_review <= now` check
+    # alone made reviewed cards re-appear as locked after SM-2 pushed them out.
+    unlocked = n1_reviews.filter(
+        (models.Review.repetitions > 0) | (models.Review.next_review <= now)
+    ).count()
 
-    due_today = (
-        db.query(func.count(models.Review.id))
-        .join(models.Card, models.Card.id == models.Review.card_id)
-        .filter(models.Card.jlpt_level == "N1", models.Review.next_review <= now)
-        .scalar() or 0
-    )
+    due_today = n1_reviews.filter(models.Review.next_review <= now).count()
 
-    # Today's brand-new words (unlocked today, never reviewed)
-    todays_new = (
-        db.query(models.Card)
-        .join(models.Review, models.Card.id == models.Review.card_id)
-        .filter(
-            models.Card.jlpt_level == "N1",
-            models.Review.next_review >= today,
-            models.Review.next_review < tomorrow,
-            models.Review.repetitions == 0,
-        )
-        .all()
-    )
+    # Mastered mirrors /learned (Review.last_reviewed IS NOT NULL) so the two
+    # pages stay consistent — marking an N1 card learned counts it as mastered.
+    mastered = n1_reviews.filter(models.Review.last_reviewed.isnot(None)).count()
 
-    # Upcoming 7 days of new words
-    upcoming = []
-    for offset in range(1, 8):
-        day_start = today + timedelta(days=offset)
-        day_end = day_start + timedelta(days=1)
-        count = (
-            db.query(func.count(models.Review.id))
-            .join(models.Card, models.Card.id == models.Review.card_id)
-            .filter(
-                models.Card.jlpt_level == "N1",
-                models.Review.next_review >= day_start,
-                models.Review.next_review < day_end,
-                models.Review.repetitions == 0,
-            )
-            .scalar() or 0
-        )
-        upcoming.append({"day_offset": offset, "new_words": count})
-
-    # Determine current day in schedule
+    # Schedule start anchored to the earliest N1 card's created_at — stable
+    # across SM-2 reviews (unlike min(next_review), which moves when cards
+    # advance).
     earliest = (
-        db.query(func.min(models.Review.next_review))
-        .join(models.Card, models.Card.id == models.Review.card_id)
+        db.query(func.min(models.Card.created_at))
         .filter(models.Card.jlpt_level == "N1")
         .scalar()
     )
@@ -134,6 +101,26 @@ def get_n1_progress(db: Session = Depends(get_db)):
         current_day = max(1, (today - start).days + 1)
 
     total_days = (total + 9) // 10
+
+    # Today's batch is the 10 cards seeded for current_day (id order matches
+    # seed batch order). Using id-slice instead of next_review keeps the list
+    # stable as the user grades cards through the day.
+    batch_start = max(0, (current_day - 1) * 10)
+    todays_new = (
+        n1_cards.order_by(models.Card.id)
+        .offset(batch_start)
+        .limit(10)
+        .all()
+    )
+
+    upcoming = []
+    for offset in range(1, 8):
+        day_index = current_day + offset
+        remaining = total - (day_index - 1) * 10 if day_index <= total_days else 0
+        upcoming.append({
+            "day_offset": offset,
+            "new_words": max(0, min(10, remaining)),
+        })
 
     return {
         "total": total,
