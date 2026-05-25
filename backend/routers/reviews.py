@@ -160,15 +160,27 @@ def get_due_cards(
 
 
 @router.get("/learned/summary")
-def get_learned_summary(db: Session = Depends(get_db)):
-    rows = (
+def get_learned_summary(
+    card_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    query = (
         db.query(models.Card.jlpt_level, func.count(models.Review.id))
         .join(models.Review, models.Review.card_id == models.Card.id)
         .filter(models.Review.last_reviewed.isnot(None))
-        .group_by(models.Card.jlpt_level)
-        .all()
     )
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
+    rows = query.group_by(models.Card.jlpt_level).all()
+
     by_level = {level: count for level, count in rows}
+
+    if card_type == "english":
+        # English cards repurpose jlpt_level to hold part_of_speech; for the
+        # English tab we just return a flat total (the UI shows a flat list).
+        total = sum(by_level.values())
+        return {"total": total, "by_level": []}
+
     levels = ["N5", "N4", "N3", "N2", "N1", "Unknown"]
     breakdown = [{"jlpt_level": lvl, "count": by_level.get(lvl, 0)} for lvl in levels]
     total = sum(item["count"] for item in breakdown)
@@ -178,6 +190,7 @@ def get_learned_summary(db: Session = Depends(get_db)):
 @router.get("/learned/words", response_model=List[schemas.CardResponse])
 def get_learned_words(
     jlpt_level: Optional[str] = Query(None),
+    card_type: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     query = (
@@ -187,6 +200,8 @@ def get_learned_words(
     )
     if jlpt_level:
         query = query.filter(models.Card.jlpt_level == jlpt_level)
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
     return query.order_by(models.Review.last_reviewed.desc()).all()
 
 

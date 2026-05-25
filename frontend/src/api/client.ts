@@ -70,12 +70,17 @@ export interface LearnedSummary {
   by_level: { jlpt_level: string; count: number }[]
 }
 
-export const getLearnedSummary = () =>
-  api.get<LearnedSummary>('/reviews/learned/summary')
+export const getLearnedSummary = (cardType?: string) =>
+  api.get<LearnedSummary>('/reviews/learned/summary', {
+    params: cardType ? { card_type: cardType } : {},
+  })
 
-export const getLearnedWords = (jlptLevel?: string) =>
+export const getLearnedWords = (jlptLevel?: string, cardType?: string) =>
   api.get<Card[]>('/reviews/learned/words', {
-    params: jlptLevel ? { jlpt_level: jlptLevel } : {},
+    params: {
+      ...(jlptLevel ? { jlpt_level: jlptLevel } : {}),
+      ...(cardType ? { card_type: cardType } : {}),
+    },
   })
 
 export const unmarkLearned = (cardId: number) =>
