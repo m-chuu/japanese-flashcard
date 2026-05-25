@@ -9,6 +9,10 @@ import models
 import schemas
 from srs import sm2
 
+# Daily cap on cards surfaced for review. Backlog beyond this rolls to the
+# next day(s) — keeps a 30-card pile-up from becoming a 30-card session.
+DAILY_REVIEW_LIMIT = 10
+
 router = APIRouter()
 
 
@@ -144,19 +148,18 @@ def get_due_cards(
     db: Session = Depends(get_db),
 ):
     now = datetime.utcnow()
-    due_reviews = (
-        db.query(models.Review)
+    query = (
+        db.query(models.Card)
+        .join(models.Review, models.Review.card_id == models.Card.id)
         .filter(
             models.Review.next_review <= now,
             models.Review.last_reviewed.is_(None),
         )
-        .all()
     )
-    card_ids = [r.card_id for r in due_reviews]
-    query = db.query(models.Card).filter(models.Card.id.in_(card_ids))
     if card_type:
         query = query.filter(models.Card.card_type == card_type)
-    return query.all()
+    # Oldest-scheduled first so a backlog drains in the order it built up.
+    return query.order_by(models.Review.next_review.asc()).limit(DAILY_REVIEW_LIMIT).all()
 
 
 @router.get("/learned/summary")
