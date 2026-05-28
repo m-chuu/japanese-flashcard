@@ -1,10 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  getLearnedSummary,
-  getLearnedWords,
-  unmarkLearned,
-} from '../api/client'
+import { getLearnedSummary, getLearnedWords, unmarkLearned } from '../api/client'
 import type { LearnedSummary } from '../api/client'
 import type { Card } from '../types'
 
@@ -27,21 +23,48 @@ const jlptGradient: Record<string, string> = {
 }
 
 type Tab = 'japanese' | 'english'
+type Sort = 'recent' | 'alpha'
+
+function matchesQuery(c: Card, q: string): boolean {
+  if (!q) return true
+  const s = q.toLowerCase()
+  return (
+    c.japanese?.toLowerCase().includes(s) ||
+    c.furigana?.toLowerCase().includes(s) ||
+    c.english?.toLowerCase().includes(s)
+  )
+}
+
+function sortWords(arr: Card[], sort: Sort): Card[] {
+  if (sort === 'alpha') {
+    return [...arr].sort((a, b) =>
+      (a.japanese || a.english || '').localeCompare(b.japanese || b.english || '', 'ja'),
+    )
+  }
+  // 'recent' — preserve backend order (last_reviewed desc)
+  return arr
+}
 
 export default function Learned() {
   const [tab, setTab] = useState<Tab>('japanese')
 
-  // Japanese tab state
+  // All learned words are loaded up front (the daily cap keeps these lists
+  // small) so search/sort can work across levels from a single source.
   const [jpSummary, setJpSummary] = useState<LearnedSummary | null>(null)
-  const [openLevel, setOpenLevel] = useState<string | null>(null)
-  const [wordsByLevel, setWordsByLevel] = useState<Record<string, Card[]>>({})
-  const [loadingLevel, setLoadingLevel] = useState<string | null>(null)
-
-  // English tab state
+  const [jpWords, setJpWords] = useState<Card[] | null>(null)
   const [enWords, setEnWords] = useState<Card[] | null>(null)
-  const [enCount, setEnCount] = useState<number>(0)
 
+  const [openLevel, setOpenLevel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<Sort>('recent')
+
+  // Unmark uses a deferred commit: remove from the UI immediately, then fire
+  // the backend call ~5s later. An "Undo" in that window cancels the call so
+  // the card's review progress is never reset.
+  const [pending, setPending] = useState<{ card: Card; index: number } | null>(null)
+  const commitTimer = useRef<number | null>(null)
 
   useEffect(() => {
     loadAll()
@@ -50,79 +73,83 @@ export default function Learned() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [jp, enSum] = await Promise.all([
+      const [jpSum, jp, en] = await Promise.all([
         getLearnedSummary('japanese'),
-        getLearnedSummary('english'),
+        getLearnedWords(undefined, 'japanese'),
+        getLearnedWords(undefined, 'english'),
       ])
-      setJpSummary(jp.data)
-      setEnCount(enSum.data.total)
+      setJpSummary(jpSum.data)
+      setJpWords(jp.data)
+      setEnWords(en.data)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    if (tab === 'english' && enWords === null) {
-      getLearnedWords(undefined, 'english').then((r) => setEnWords(r.data))
+  function flushPending() {
+    if (commitTimer.current !== null) {
+      clearTimeout(commitTimer.current)
+      commitTimer.current = null
     }
-  }, [tab, enWords])
-
-  async function toggleLevel(level: string) {
-    if (openLevel === level) {
-      setOpenLevel(null)
-      return
-    }
-    setOpenLevel(level)
-    if (!wordsByLevel[level]) {
-      setLoadingLevel(level)
-      try {
-        const r = await getLearnedWords(level, 'japanese')
-        setWordsByLevel((prev) => ({ ...prev, [level]: r.data }))
-      } finally {
-        setLoadingLevel(null)
-      }
+    if (pending) {
+      unmarkLearned(pending.card.id).catch(() => {})
+      setPending(null)
     }
   }
 
-  async function handleUnmarkJp(level: string, cardId: number) {
-    if (!confirm('Remove this word from your learned list? Its review progress will reset.')) return
-    await unmarkLearned(cardId)
-    setWordsByLevel((prev) => ({
-      ...prev,
-      [level]: (prev[level] ?? []).filter((c) => c.id !== cardId),
-    }))
-    setJpSummary((prev) =>
-      prev
-        ? {
-            total: prev.total - 1,
-            by_level: prev.by_level.map((b) =>
-              b.jlpt_level === level ? { ...b, count: Math.max(0, b.count - 1) } : b,
-            ),
-          }
-        : prev,
-    )
+  function requestUnmark(card: Card) {
+    // Commit any in-flight removal before starting a new one.
+    flushPending()
+
+    const isEn = card.card_type === 'english'
+    const arr = isEn ? enWords : jpWords
+    const index = arr ? arr.findIndex((c) => c.id === card.id) : -1
+
+    if (isEn) {
+      setEnWords((prev) => (prev ? prev.filter((c) => c.id !== card.id) : prev))
+    } else {
+      setJpWords((prev) => (prev ? prev.filter((c) => c.id !== card.id) : prev))
+    }
+
+    setPending({ card, index: index < 0 ? 0 : index })
+    commitTimer.current = window.setTimeout(() => {
+      unmarkLearned(card.id).catch(() => {})
+      commitTimer.current = null
+      setPending(null)
+    }, 5000)
   }
 
-  async function handleUnmarkEn(cardId: number) {
-    if (!confirm('Remove this word from your learned list? Its review progress will reset.')) return
-    await unmarkLearned(cardId)
-    setEnWords((prev) => (prev ?? []).filter((c) => c.id !== cardId))
-    setEnCount((prev) => Math.max(0, prev - 1))
+  function undoUnmark() {
+    if (!pending) return
+    if (commitTimer.current !== null) {
+      clearTimeout(commitTimer.current)
+      commitTimer.current = null
+    }
+    const { card, index } = pending
+    const insert = (prev: Card[] | null): Card[] => {
+      const list = prev ? [...prev] : []
+      list.splice(Math.min(index, list.length), 0, card)
+      return list
+    }
+    if (card.card_type === 'english') setEnWords(insert)
+    else setJpWords(insert)
+    setPending(null)
   }
 
   if (loading) {
     return <p className="text-center text-gray-400 py-16">Loading…</p>
   }
 
-  const totalAll = (jpSummary?.total ?? 0) + enCount
-  if (totalAll === 0) {
+  const jpTotal = jpWords?.length ?? 0
+  const enCount = enWords?.length ?? 0
+  const totalAll = jpTotal + enCount
+
+  if (totalAll === 0 && !pending) {
     return (
       <div className="text-center py-20">
         <p className="text-5xl mb-4">📖</p>
         <h2 className="text-2xl font-bold text-gray-800 mb-2">No learned words yet</h2>
-        <p className="text-gray-500 mb-8">
-          Words you've studied will show up here.
-        </p>
+        <p className="text-gray-500 mb-8">Words you've studied will show up here.</p>
         <Link
           to="/study"
           className="inline-block bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 font-semibold shadow-md shadow-indigo-200"
@@ -133,8 +160,47 @@ export default function Learned() {
     )
   }
 
-  const headerCount = tab === 'japanese' ? (jpSummary?.total ?? 0) : enCount
+  const headerCount = tab === 'japanese' ? jpTotal : enCount
   const headerLabel = tab === 'japanese' ? 'Japanese Words Learned' : 'English Words Learned'
+  const q = query.trim().toLowerCase()
+
+  function renderWordList(words: Card[], emptyMsg: string) {
+    if (words.length === 0) {
+      return <p className="text-center text-gray-400 py-8 text-sm">{emptyMsg}</p>
+    }
+    return (
+      <ul className="divide-y divide-gray-100">
+        {words.map((c) => (
+          <li
+            key={c.id}
+            className="px-5 py-3 flex items-start gap-4 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-lg font-bold text-gray-900 break-words">
+                {c.japanese}
+                {c.furigana && (
+                  <span className="ml-2 text-sm font-medium text-indigo-500">{c.furigana}</span>
+                )}
+              </p>
+              <p className="text-sm text-gray-600 break-words">{c.english}</p>
+              {c.note && (
+                <p className="mt-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words">
+                  📝 {c.note}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => requestUnmark(c)}
+              aria-label="Unmark as learned"
+              className="text-xs text-gray-400 hover:text-red-500 font-medium shrink-0 mt-0.5 px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+            >
+              Unmark
+            </button>
+          </li>
+        ))}
+      </ul>
+    )
+  }
 
   return (
     <div>
@@ -147,7 +213,7 @@ export default function Learned() {
         </p>
       </div>
 
-      <div className="flex gap-2 mb-6 bg-gray-100 p-1 rounded-xl">
+      <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
         <button
           onClick={() => setTab('japanese')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all ${
@@ -157,7 +223,7 @@ export default function Learned() {
           }`}
         >
           🇯🇵 Japanese
-          <span className="ml-2 text-xs text-gray-400 tabular-nums">{jpSummary?.total ?? 0}</span>
+          <span className="ml-2 text-xs text-gray-400 tabular-nums">{jpTotal}</span>
         </button>
         <button
           onClick={() => setTab('english')}
@@ -172,143 +238,116 @@ export default function Learned() {
         </button>
       </div>
 
+      <div className="flex gap-2 mb-6">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search learned words…"
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300"
+          />
+        </div>
+        <button
+          onClick={() => setSort((s) => (s === 'recent' ? 'alpha' : 'recent'))}
+          className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shrink-0"
+          title="Toggle sort order"
+        >
+          {sort === 'recent' ? 'Recent ↓' : 'A–Z'}
+        </button>
+      </div>
+
       {tab === 'japanese' ? (
-        <div className="flex flex-col gap-3">
-          {(jpSummary?.by_level ?? []).map((b) => {
-            const isOpen = openLevel === b.jlpt_level
-            const words = wordsByLevel[b.jlpt_level] ?? []
-            const isLoading = loadingLevel === b.jlpt_level
-            const disabled = b.count === 0
-            const jpTotal = jpSummary?.total ?? 0
-            return (
-              <div
-                key={b.jlpt_level}
-                className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden"
-              >
-                <button
-                  disabled={disabled}
-                  onClick={() => toggleLevel(b.jlpt_level)}
-                  className={`w-full flex items-center gap-4 px-5 py-4 text-left transition-colors ${
-                    disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
-                  }`}
+        q ? (
+          <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+            {renderWordList(
+              sortWords((jpWords ?? []).filter((c) => matchesQuery(c, q)), sort),
+              `No matches for “${query.trim()}”`,
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {(jpSummary?.by_level ?? []).map((b) => {
+              const levelWords = sortWords(
+                (jpWords ?? []).filter((c) => c.jlpt_level === b.jlpt_level),
+                sort,
+              )
+              const count = levelWords.length
+              const isOpen = openLevel === b.jlpt_level
+              const disabled = count === 0
+              const pct = b.available > 0 ? Math.min(100, (count / b.available) * 100) : 0
+              return (
+                <div
+                  key={b.jlpt_level}
+                  className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden"
                 >
-                  <span
-                    className={`text-sm font-semibold px-3 py-1 rounded-full border ${
-                      jlptColor[b.jlpt_level] ?? jlptColor.Unknown
+                  <button
+                    disabled={disabled}
+                    onClick={() => setOpenLevel(isOpen ? null : b.jlpt_level)}
+                    className={`w-full flex items-center gap-4 px-5 py-4 text-left transition-colors ${
+                      disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
                     }`}
                   >
-                    {b.jlpt_level}
-                  </span>
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-2 rounded-full bg-gradient-to-r ${
-                        jlptGradient[b.jlpt_level] ?? jlptGradient.Unknown
-                      }`}
-                      style={{
-                        width: `${jpTotal > 0 ? (b.count / jpTotal) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <span className="text-lg font-bold text-gray-800 tabular-nums w-12 text-right">
-                    {b.count}
-                  </span>
-                  {!disabled && (
                     <span
-                      className={`text-gray-400 transition-transform duration-200 ${
-                        isOpen ? 'rotate-180' : ''
+                      className={`text-sm font-semibold px-3 py-1 rounded-full border ${
+                        jlptColor[b.jlpt_level] ?? jlptColor.Unknown
                       }`}
                     >
-                      ▼
+                      {b.jlpt_level}
                     </span>
-                  )}
-                </button>
-
-                {isOpen && (
-                  <div className="border-t border-gray-100 bg-gray-50/50">
-                    {isLoading ? (
-                      <p className="text-center text-gray-400 py-6 text-sm">Loading…</p>
-                    ) : words.length === 0 ? (
-                      <p className="text-center text-gray-400 py-6 text-sm">No words.</p>
-                    ) : (
-                      <ul className="divide-y divide-gray-100">
-                        {words.map((c) => (
-                          <li
-                            key={c.id}
-                            className="px-5 py-3 flex items-start gap-4 group hover:bg-white transition-colors"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-lg font-bold text-gray-900 truncate">
-                                {c.japanese}
-                                {c.furigana && (
-                                  <span className="ml-2 text-sm font-medium text-indigo-500">
-                                    {c.furigana}
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-sm text-gray-500 truncate">{c.english}</p>
-                              {c.note && (
-                                <p className="mt-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words">
-                                  📝 {c.note}
-                                </p>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => handleUnmarkJp(b.jlpt_level, c.id)}
-                              className="text-xs text-gray-400 hover:text-red-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
-                            >
-                              Unmark
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-2 rounded-full bg-gradient-to-r ${
+                          jlptGradient[b.jlpt_level] ?? jlptGradient.Unknown
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-700 tabular-nums w-16 text-right">
+                      {count}
+                      <span className="text-gray-400 font-normal"> / {b.available}</span>
+                    </span>
+                    {!disabled && (
+                      <span
+                        className={`text-gray-400 transition-transform duration-200 ${
+                          isOpen ? 'rotate-180' : ''
+                        }`}
+                      >
+                        ▼
+                      </span>
                     )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-gray-100 bg-gray-50/50">
+                      {renderWordList(levelWords, 'No words.')}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
       ) : (
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-          {enWords === null ? (
-            <p className="text-center text-gray-400 py-6 text-sm">Loading…</p>
-          ) : enWords.length === 0 ? (
-            <p className="text-center text-gray-400 py-10 text-sm">
-              No English words learned yet.
-            </p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {enWords.map((c) => (
-                <li
-                  key={c.id}
-                  className="px-5 py-3 flex items-start gap-4 group hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-lg font-bold text-gray-900 truncate">
-                      {c.japanese}
-                      {c.furigana && (
-                        <span className="ml-2 text-sm font-medium text-indigo-500">
-                          {c.furigana}
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-sm text-gray-500 truncate">{c.english}</p>
-                    {c.note && (
-                      <p className="mt-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words">
-                        📝 {c.note}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handleUnmarkEn(c.id)}
-                    className="text-xs text-gray-400 hover:text-red-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
-                  >
-                    Unmark
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {renderWordList(
+            sortWords((enWords ?? []).filter((c) => matchesQuery(c, q)), sort),
+            q ? `No matches for “${query.trim()}”` : 'No English words learned yet.',
           )}
+        </div>
+      )}
+
+      {pending && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg flex items-center gap-4">
+          <span className="truncate max-w-[60vw]">
+            Unmarked <span className="font-semibold">{pending.card.japanese}</span>
+          </span>
+          <button
+            onClick={undoUnmark}
+            className="font-semibold text-indigo-300 hover:text-indigo-200 shrink-0"
+          >
+            Undo
+          </button>
         </div>
       )}
     </div>

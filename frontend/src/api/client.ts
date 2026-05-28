@@ -67,7 +67,7 @@ export const getN1Progress = () => api.get<N1Progress>('/reviews/n1-progress')
 
 export interface LearnedSummary {
   total: number
-  by_level: { jlpt_level: string; count: number }[]
+  by_level: { jlpt_level: string; count: number; available: number }[]
 }
 
 export const getLearnedSummary = (cardType?: string) =>

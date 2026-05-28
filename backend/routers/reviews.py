@@ -184,8 +184,25 @@ def get_learned_summary(
         total = sum(by_level.values())
         return {"total": total, "by_level": []}
 
+    # Total cards available per level (regardless of learned state) so the UI
+    # can show real per-level progress (learned / available) instead of each
+    # level's share of the overall learned count.
+    avail_query = db.query(models.Card.jlpt_level, func.count(models.Card.id))
+    if card_type:
+        avail_query = avail_query.filter(models.Card.card_type == card_type)
+    available_by_level = {
+        level: count for level, count in avail_query.group_by(models.Card.jlpt_level).all()
+    }
+
     levels = ["N5", "N4", "N3", "N2", "N1", "Unknown"]
-    breakdown = [{"jlpt_level": lvl, "count": by_level.get(lvl, 0)} for lvl in levels]
+    breakdown = [
+        {
+            "jlpt_level": lvl,
+            "count": by_level.get(lvl, 0),
+            "available": available_by_level.get(lvl, 0),
+        }
+        for lvl in levels
+    ]
     total = sum(item["count"] for item in breakdown)
     return {"total": total, "by_level": breakdown}
 
