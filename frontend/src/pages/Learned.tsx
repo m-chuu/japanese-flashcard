@@ -170,7 +170,9 @@ export default function Learned() {
     }
     return (
       <ul className="divide-y divide-gray-100">
-        {words.map((c) => (
+        {words.map((c) => {
+          const isEn = c.card_type === 'english'
+          return (
           <li
             key={c.id}
             className="px-5 py-3 flex items-start gap-4 hover:bg-gray-50 transition-colors"
@@ -179,7 +181,18 @@ export default function Learned() {
               <p className="text-lg font-bold text-gray-900 break-words">
                 {c.japanese}
                 {c.furigana && (
-                  <span className="ml-2 text-sm font-medium text-indigo-500">{c.furigana}</span>
+                  <span
+                    className={`ml-2 text-sm font-medium ${
+                      isEn ? 'text-gray-400 font-mono' : 'text-indigo-500'
+                    }`}
+                  >
+                    {c.furigana}
+                  </span>
+                )}
+                {isEn && c.jlpt_level && c.jlpt_level !== 'Unknown' && (
+                  <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">
+                    {c.jlpt_level}
+                  </span>
                 )}
               </p>
               <p className="text-sm text-gray-600 break-words">{c.english}</p>
@@ -197,7 +210,8 @@ export default function Learned() {
               Unmark
             </button>
           </li>
-        ))}
+          )
+        })}
       </ul>
     )
   }
@@ -248,13 +262,34 @@ export default function Learned() {
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300"
           />
         </div>
-        <button
-          onClick={() => setSort((s) => (s === 'recent' ? 'alpha' : 'recent'))}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shrink-0"
-          title="Toggle sort order"
+        <div
+          className="flex shrink-0 bg-gray-100 rounded-xl p-1"
+          role="group"
+          aria-label="Sort order"
         >
-          {sort === 'recent' ? 'Recent ↓' : 'A–Z'}
-        </button>
+          <button
+            onClick={() => setSort('recent')}
+            aria-pressed={sort === 'recent'}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+              sort === 'recent'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Recent
+          </button>
+          <button
+            onClick={() => setSort('alpha')}
+            aria-pressed={sort === 'alpha'}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+              sort === 'alpha'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            A–Z
+          </button>
+        </div>
       </div>
 
       {tab === 'japanese' ? (
@@ -341,6 +376,9 @@ export default function Learned() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg flex items-center gap-4">
           <span className="truncate max-w-[60vw]">
             Unmarked <span className="font-semibold">{pending.card.japanese}</span>
+            {pending.card.card_type !== 'english' && pending.card.furigana && (
+              <span className="text-gray-400 font-normal"> ({pending.card.furigana})</span>
+            )}
           </span>
           <button
             onClick={undoUnmark}

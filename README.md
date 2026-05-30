@@ -11,6 +11,7 @@ A vocabulary flashcard desktop app with screen OCR capture for Japanese, and Fre
 - **English flashcards** — separate English deck backed by the Free Dictionary API (no key); type any English word and click Lookup to auto-fill definition, IPA phonetic, example sentence, and synonyms
 - **YouGlish pronunciation** — English card backs embed the YouGlish JS widget so you can hear native pronunciation in context from real YouTube videos
 - **SM-2 spaced repetition** — the Study page schedules cards using the same algorithm as Anki (Again / Hard / Good / Easy buttons, 0–5 quality scale)
+- **Daily learning cap** — at most **10 new words/day** are surfaced for study; any backlog rolls over to following days so a pile-up never becomes an overwhelming session. The Study page shows today's batch size and how many words you've already studied
 - **Separate study decks** — choose Japanese or English at the start of each study session
 - **JLPT filtering** — Japanese cards are tagged N5 → N1 or Unknown; the home page filters by level
 - **Edit / delete** — all cards are editable after creation
@@ -293,3 +294,18 @@ The Study page uses the **SM-2 algorithm**:
 | Easy | 5 | Large interval increase, ease factor rises |
 
 Cards with `next_review ≤ now` appear in the study queue. After a session the next review date is stored in the `reviews` table.
+
+---
+
+## Daily Learning Cap
+
+To keep sessions manageable, only a fixed number of **new** words are surfaced per day (default **10**). Any backlog beyond the cap rolls over to the following day(s) — a 30-card pile-up drains as 10 / 10 / 10 rather than all at once. The Study page header shows today's batch size and your studied count.
+
+**To change the cap**, edit [`DAILY_REVIEW_LIMIT`](backend/routers/reviews.py#L14) in [backend/routers/reviews.py](backend/routers/reviews.py):
+
+```python
+# Daily cap on cards surfaced for review.
+DAILY_REVIEW_LIMIT = 10   # ← change this number
+```
+
+> ⚠️ The `/reviews/stats` endpoint (used for the upcoming-days forecast and day counter) also hard-codes `10` in a few places — see [backend/routers/reviews.py:107-126](backend/routers/reviews.py#L107-L126). If you change the cap, update those `10` / `// 10` references too so the forecast stays in sync.
