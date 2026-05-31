@@ -1,15 +1,61 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from functools import lru_cache
 import httpx
 import json
 import os
+
+from google import genai
+from google.genai import types as genai_types
+from google.genai import errors as genai_errors
+from pydantic import BaseModel
 
 from database import get_db
 import models
 import schemas
 
 router = APIRouter()
+
+
+# --- Idiom lookup via Google Gemini (free tier) ------------------------------
+# The Free Dictionary / Datamuse / Wiktionary APIs are keyed on dictionary
+# entries and 404 on most multi-word idioms ("ice in the veins", "break a
+# leg"), so idioms are resolved through Gemini instead — it defines any genuine
+# idiom and writes a natural example. The free tier needs only a free API key
+# (GEMINI_API_KEY), no billing.
+
+IDIOM_MODEL = "gemini-2.5-flash"
+
+IDIOM_SYSTEM = (
+    "You are a precise English-idiom dictionary for a flashcard app. "
+    "Given a phrase, decide whether it is a genuine English idiom or fixed "
+    "figurative expression (e.g. \"ice in the veins\", \"spill the beans\", "
+    "\"under the weather\").\n\n"
+    "If it is, set found=true and fill every field:\n"
+    "- idiom: the canonical dictionary form of the phrase\n"
+    "- meaning: one concise sentence, no leading \"It means\"\n"
+    "- example: one natural sentence that uses the idiom in context\n"
+    "- formality: exactly one of Informal, Neutral, or Formal\n"
+    "- related: 0-3 related idioms as a comma-separated string (may be empty)\n\n"
+    "If the phrase is not a real idiom — a single literal word, random words, "
+    "or gibberish — set found=false and leave the other fields as empty strings."
+)
+
+
+class IdiomResult(BaseModel):
+    found: bool
+    idiom: str = ""
+    meaning: str = ""
+    example: str = ""
+    formality: str = ""
+    related: str = ""
+
+
+@lru_cache(maxsize=1)
+def _gemini_client() -> genai.Client:
+    # Cached so the HTTP client is reused across requests. Reads GEMINI_API_KEY.
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Local JLPT vocab fallback (~14k words, kanji and kana keyed)
 _JLPT_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "jlpt_vocab.json")
@@ -107,6 +153,41 @@ async def lookup_english_word(word: str):
         "synonyms": ", ".join(synonyms[:5]),
         "part_of_speech": part_of_speech,
     }
+
+
+@router.get("/idiom-lookup/{idiom}", response_model=IdiomResult)
+async def lookup_idiom(idiom: str):
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="Idiom lookup is unavailable — set GEMINI_API_KEY in backend/.env.",
+        )
+
+    try:
+        response = await _gemini_client().aio.models.generate_content(
+            model=IDIOM_MODEL,
+            contents=idiom.strip(),
+            config=genai_types.GenerateContentConfig(
+                system_instruction=IDIOM_SYSTEM,
+                response_mime_type="application/json",
+                response_schema=IdiomResult,
+                # Simple extraction — disable the model's thinking step for a
+                # fast, cheap lookup.
+                thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+    except genai_errors.ClientError as e:
+        # 4xx — bad/expired key, quota exhausted, no model access. These are
+        # configuration problems the user must fix, so surface the message
+        # rather than masquerading as "idiom not found".
+        raise HTTPException(status_code=503, detail=f"Idiom lookup failed — {e.message}")
+    except genai_errors.APIError:
+        # Server-side / transient — let the form fall back to manual entry.
+        return IdiomResult(found=False)
+
+    # response.parsed is the validated IdiomResult (None if the model returned
+    # nothing parseable).
+    return response.parsed or IdiomResult(found=False)
 
 
 @router.get("/", response_model=List[schemas.CardResponse])

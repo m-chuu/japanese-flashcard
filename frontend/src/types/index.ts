@@ -31,6 +31,15 @@ export interface Review {
   last_reviewed: string | null
 }
 
+export interface IdiomLookup {
+  found: boolean
+  idiom?: string
+  meaning?: string
+  example?: string
+  formality?: string
+  related?: string
+}
+
 export interface JishoLookup {
   found: boolean
   furigana?: string

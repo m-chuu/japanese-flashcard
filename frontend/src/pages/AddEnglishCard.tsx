@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createCard, lookupEnglishWord } from '../api/client'
+import { createCard, lookupEnglishWord, lookupIdiom } from '../api/client'
+import type { IdiomLookup } from '../types'
 
 const emptyForm = {
   word: '',
@@ -18,27 +19,70 @@ export default function AddEnglishCard() {
   const [lookingUp, setLookingUp] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
+  function fillFromIdiom(d: IdiomLookup) {
+    // Idioms have no IPA; map meaning/example/related onto the card fields and
+    // tag the part of speech as "idiom".
+    setForm((f) => ({
+      ...f,
+      word: d.idiom || f.word,
+      phonetic: '',
+      definition: d.meaning ?? f.definition,
+      example: d.example ?? f.example,
+      synonyms: d.related ?? f.synonyms,
+      part_of_speech: 'idiom',
+    }))
+  }
+
   const handleLookup = useCallback(async (word: string) => {
-    if (!word.trim()) return
+    const term = word.trim()
+    if (!term) return
     setLookingUp(true)
     setNotFound(false)
-    try {
-      const res = await lookupEnglishWord(word.trim())
-      if (res.data.found) {
-        setForm((f) => ({
-          ...f,
-          word: res.data.word ?? f.word,
-          phonetic: res.data.phonetic ?? f.phonetic,
-          definition: res.data.definition ?? f.definition,
-          example: res.data.example ?? f.example,
-          synonyms: res.data.synonyms ?? f.synonyms,
-          part_of_speech: res.data.part_of_speech ?? f.part_of_speech,
-        }))
-      } else {
-        setNotFound(true)
+
+    // Multi-word phrases ("ice in the veins") aren't in the Free Dictionary, so
+    // try the Gemini idiom lookup first for those; single words go to the
+    // dictionary first and fall back to idiom only if the dictionary misses.
+    const looksLikeIdiom = /\s/.test(term)
+
+    async function tryIdiom(): Promise<boolean> {
+      try {
+        const res = await lookupIdiom(term)
+        if (res.data.found) {
+          fillFromIdiom(res.data)
+          return true
+        }
+      } catch {
+        // 503 (key/quota) or network — fall through to manual entry.
       }
-    } catch {
-      setNotFound(true)
+      return false
+    }
+
+    async function tryDictionary(): Promise<boolean> {
+      try {
+        const res = await lookupEnglishWord(term)
+        if (res.data.found) {
+          setForm((f) => ({
+            ...f,
+            word: res.data.word ?? f.word,
+            phonetic: res.data.phonetic ?? f.phonetic,
+            definition: res.data.definition ?? f.definition,
+            example: res.data.example ?? f.example,
+            synonyms: res.data.synonyms ?? f.synonyms,
+            part_of_speech: res.data.part_of_speech ?? f.part_of_speech,
+          }))
+          return true
+        }
+      } catch {
+        // network error — fall through.
+      }
+      return false
+    }
+
+    try {
+      const found = looksLikeIdiom
+        ? (await tryIdiom()) || (await tryDictionary())
+        : (await tryDictionary()) || (await tryIdiom())
+      if (!found) setNotFound(true)
     } finally {
       setLookingUp(false)
     }
@@ -79,14 +123,14 @@ export default function AddEnglishCard() {
         {/* Word */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Word <span className="text-red-400">*</span>
+            Word or idiom <span className="text-red-400">*</span>
           </label>
           <div className="flex gap-2">
             <input
               value={form.word}
               onChange={set('word')}
               required
-              placeholder="e.g. ephemeral"
+              placeholder="e.g. ephemeral — or ice in the veins"
               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xl focus:outline-none focus:ring-2 focus:ring-emerald-400"
             />
             <button
@@ -99,10 +143,11 @@ export default function AddEnglishCard() {
             </button>
           </div>
           {notFound && (
-            <p className="text-xs text-red-400 mt-1">Word not found — fill in the fields manually.</p>
+            <p className="text-xs text-red-400 mt-1">Not found — fill in the fields manually.</p>
           )}
           <p className="text-xs text-gray-400 mt-1">
-            Type an English word and click Lookup to auto-fill from Free Dictionary API
+            Click Lookup to auto-fill — single words use the Free Dictionary, idioms (e.g.
+            “ice in the veins”) use Gemini.
           </p>
         </div>
 

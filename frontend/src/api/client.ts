@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Card, JishoLookup, EnglishLookup } from '../types'
+import type { Card, JishoLookup, EnglishLookup, IdiomLookup } from '../types'
 
 const api = axios.create({ baseURL: 'http://localhost:8000' })
 
@@ -28,6 +28,9 @@ export const lookupWord = (word: string) =>
 
 export const lookupEnglishWord = (word: string) =>
   api.get<EnglishLookup>(`/cards/english-lookup/${encodeURIComponent(word)}`)
+
+export const lookupIdiom = (idiom: string) =>
+  api.get<IdiomLookup>(`/cards/idiom-lookup/${encodeURIComponent(idiom)}`)
 
 export interface Stats {
   total_cards: number
