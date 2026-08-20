@@ -29,6 +29,7 @@ export interface Review {
   repetitions: number
   next_review: string
   last_reviewed: string | null
+  learned_at: string | null
 }
 
 export interface IdiomLookup {

@@ -30,6 +30,7 @@ class Review(Base):
     interval = Column(Integer, default=1)       # days until next review
     repetitions = Column(Integer, default=0)
     next_review = Column(DateTime, default=datetime.utcnow)
-    last_reviewed = Column(DateTime, nullable=True)
+    last_reviewed = Column(DateTime, nullable=True)   # most recent review
+    learned_at = Column(DateTime, nullable=True)      # first review — "learned"
 
     card = relationship("Card", back_populates="review")

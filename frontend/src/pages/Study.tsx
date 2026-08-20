@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { getDueCards, submitReview } from '../api/client'
 import type { Card } from '../types'
 import FlashCard from '../components/FlashCard'
@@ -91,6 +91,21 @@ function LoadingState() {
   )
 }
 
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="max-w-lg mx-auto text-center py-24">
+      <p className="text-5xl mb-4">🔌</p>
+      <p className="text-gray-600 font-medium mb-6">{message}</p>
+      <button
+        onClick={onRetry}
+        className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl hover:bg-indigo-700 font-semibold text-sm transition-all"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
+
 function DoneState({
   reviewed,
   deck,
@@ -134,22 +149,38 @@ function DoneState({
 }
 
 export default function Study() {
-  const [deck, setDeck] = useState<Deck | null>(null)
+  // Deck and level live in the URL so other pages can deep-link into a
+  // specific session — /study?deck=japanese&level=N1 skips the deck picker and
+  // loads exactly the words the N1 page lists under "Today's new words".
+  const [params, setParams] = useSearchParams()
+  const deckParam = params.get('deck')
+  const deck: Deck | null =
+    deckParam === 'japanese' || deckParam === 'english' ? deckParam : null
+  const level = params.get('level') || undefined
+
   const [cards, setCards] = useState<Card[]>([])
   const [index, setIndex] = useState(0)
   const [reviewed, setReviewed] = useState(0)
   const [done, setDone] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!deck) return
     setLoading(true)
-    getDueCards(deck).then((r) => {
-      setCards(r.data)
-      setLoading(false)
-      if (r.data.length === 0) setDone(true)
-    })
-  }, [deck])
+    setError(null)
+    setIndex(0)
+    setReviewed(0)
+    setDone(false)
+    getDueCards(deck, level)
+      .then((r) => {
+        setCards(r.data)
+        if (r.data.length === 0) setDone(true)
+      })
+      .catch(() => setError('Could not load cards — is the backend running at localhost:8000?'))
+      .finally(() => setLoading(false))
+  }, [deck, level, reloadKey])
 
   async function handleQuality(quality: number) {
     await submitReview(cards[index].id, quality)
@@ -161,15 +192,21 @@ export default function Study() {
     }
   }
 
+  function pick(next: Deck) {
+    setParams({ deck: next })
+  }
+
   function reset() {
-    setDeck(null)
+    setParams({})
     setCards([])
     setIndex(0)
     setReviewed(0)
     setDone(false)
+    setError(null)
   }
 
-  if (!deck) return <DeckPicker onPick={setDeck} />
+  if (!deck) return <DeckPicker onPick={pick} />
+  if (error) return <ErrorState message={error} onRetry={() => setReloadKey((n) => n + 1)} />
   if (loading || (!done && cards.length === 0)) return <LoadingState />
   if (done) return <DoneState reviewed={reviewed} deck={deck} onReset={reset} />
 
@@ -183,6 +220,11 @@ export default function Study() {
     <div className="max-w-lg mx-auto">
       {/* Progress header */}
       <div className="flex items-center gap-3 mb-8">
+        {level && (
+          <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full shrink-0">
+            {level}
+          </span>
+        )}
         <span className="text-xs font-bold tabular-nums text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full shrink-0">
           {index + 1} / {cards.length}
         </span>

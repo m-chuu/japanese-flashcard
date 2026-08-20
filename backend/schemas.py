@@ -38,5 +38,6 @@ class ReviewResponse(BaseModel):
     repetitions: int
     next_review: datetime
     last_reviewed: Optional[datetime] = None
+    learned_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

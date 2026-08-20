@@ -9,21 +9,101 @@ import models
 import schemas
 from srs import sm2
 
-# Daily cap on cards surfaced for review. Backlog beyond this rolls to the
-# next day(s) — keeps a 30-card pile-up from becoming a 30-card session.
-DAILY_REVIEW_LIMIT = 10
+# New words introduced per calendar day, per deck. Backlog beyond this rolls
+# to the next day(s) — keeps a 30-card pile-up from becoming a 30-card session.
+DAILY_NEW_LIMIT = 10
+
+# Ceiling on repeat reviews in one session. Unlike new words this is a soft
+# per-session cap, not a daily quota: graded cards reschedule into the future,
+# so a backlog drains on its own rather than rolling over.
+DAILY_REVIEW_LIMIT = 50
 
 router = APIRouter()
+
+
+def _new_word_allowance(db: Session, card_type: Optional[str] = None) -> int:
+    """Slots left in today's new-word budget for a deck.
+
+    Counted from learned_at rather than per request, so refreshing the Study
+    page cannot pull tomorrow's batch forward. The budget is per deck and is
+    shared across JLPT levels — studying N5 words spends the same allowance an
+    N1 session draws on.
+    """
+    # learned_at is stored in UTC, so anchor the day boundary in UTC too.
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    query = (
+        db.query(func.count(models.Review.id))
+        .join(models.Card, models.Card.id == models.Review.card_id)
+        .filter(models.Review.learned_at >= day_start)
+    )
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
+    return max(0, DAILY_NEW_LIMIT - (query.scalar() or 0))
+
+
+def _due(db: Session, card_type: Optional[str], jlpt_level: Optional[str]):
+    query = (
+        db.query(models.Card)
+        .join(models.Review, models.Review.card_id == models.Card.id)
+        .filter(models.Review.next_review <= datetime.utcnow())
+    )
+    if card_type:
+        query = query.filter(models.Card.card_type == card_type)
+    if jlpt_level:
+        query = query.filter(models.Card.jlpt_level == jlpt_level)
+    return query
+
+
+def _due_repeats(
+    db: Session, card_type: Optional[str] = None, jlpt_level: Optional[str] = None
+) -> List[models.Card]:
+    """Already-studied cards whose SM-2 interval has elapsed."""
+    return (
+        _due(db, card_type, jlpt_level)
+        .filter(models.Review.learned_at.isnot(None))
+        # Oldest-scheduled first so a backlog drains in the order it built up.
+        .order_by(models.Review.next_review.asc())
+        .limit(DAILY_REVIEW_LIMIT)
+        .all()
+    )
+
+
+def _new_words(
+    db: Session, card_type: Optional[str] = None, jlpt_level: Optional[str] = None
+) -> List[models.Card]:
+    """Never-studied cards unlocked today, within the daily new-word budget."""
+    allowance = _new_word_allowance(db, card_type)
+    if not allowance:
+        return []
+    return (
+        _due(db, card_type, jlpt_level)
+        .filter(models.Review.learned_at.is_(None))
+        # Card.id tiebreaks so seeded decks (seed_n1.py) surface in batch order.
+        .order_by(models.Review.next_review.asc(), models.Card.id.asc())
+        .limit(allowance)
+        .all()
+    )
+
+
+def _due_queue(
+    db: Session, card_type: Optional[str] = None, jlpt_level: Optional[str] = None
+) -> List[models.Card]:
+    """Cards to study right now — due repeats first, then today's new words."""
+    return (
+        _due_repeats(db, card_type, jlpt_level)
+        + _new_words(db, card_type, jlpt_level)
+    )
 
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     total_cards = db.query(func.count(models.Card.id)).scalar() or 0
 
-    now = datetime.utcnow()
-    due_today = db.query(func.count(models.Review.id)).filter(
-        models.Review.next_review <= now
-    ).scalar() or 0
+    # Count what the study queue will actually serve, per deck — each deck gets
+    # its own DAILY_NEW_LIMIT, so a raw `next_review <= now` count would report
+    # a number the user cannot act on.
+    card_types = [t for (t,) in db.query(models.Card.card_type).distinct()]
+    due_today = sum(len(_due_queue(db, t)) for t in card_types)
 
     mastered = db.query(func.count(models.Review.id)).filter(
         models.Review.interval >= 21
@@ -77,19 +157,24 @@ def get_n1_progress(db: Session = Depends(get_db)):
         .filter(models.Card.jlpt_level == "N1")
     )
 
-    # Unlocked = introduced to the user: either initial unlock date has passed
-    # (next_review <= now and never touched) or the card has been reviewed at
-    # least once (repetitions > 0). The previous `next_review <= now` check
-    # alone made reviewed cards re-appear as locked after SM-2 pushed them out.
+    # Unlocked = introduced to the user: either the initial unlock date has
+    # passed (next_review <= now and never touched) or the card has been
+    # studied at least once (learned_at set). Keying on learned_at rather than
+    # repetitions matters now that cards repeat — grading one "Again" zeroes
+    # repetitions, which would flip an introduced card back to locked.
     unlocked = n1_reviews.filter(
-        (models.Review.repetitions > 0) | (models.Review.next_review <= now)
+        models.Review.learned_at.isnot(None) | (models.Review.next_review <= now)
     ).count()
 
-    due_today = n1_reviews.filter(models.Review.next_review <= now).count()
+    # What a "Study Now" tap from this page serves right now: due repeats plus
+    # today's remaining new words. Reported as due_today so the stat tile can't
+    # advertise a number the session won't deliver.
+    queued = len(_due_queue(db, "japanese", "N1"))
+    due_today = queued
 
-    # Mastered mirrors /learned (Review.last_reviewed IS NOT NULL) so the two
+    # Mastered mirrors /learned (Review.learned_at IS NOT NULL) so the two
     # pages stay consistent — marking an N1 card learned counts it as mastered.
-    mastered = n1_reviews.filter(models.Review.last_reviewed.isnot(None)).count()
+    mastered = n1_reviews.filter(models.Review.learned_at.isnot(None)).count()
 
     # Schedule start anchored to the earliest N1 card's created_at — stable
     # across SM-2 reviews (unlike min(next_review), which moves when cards
@@ -104,26 +189,35 @@ def get_n1_progress(db: Session = Depends(get_db)):
         start = earliest.replace(hour=0, minute=0, second=0, microsecond=0)
         current_day = max(1, (today - start).days + 1)
 
-    total_days = (total + 9) // 10
+    per_day = DAILY_NEW_LIMIT
+    total_days = (total + per_day - 1) // per_day
 
-    # Today's batch is the 10 cards seeded for current_day (id order matches
-    # seed batch order). Using id-slice instead of next_review keeps the list
-    # stable as the user grades cards through the day.
-    batch_start = max(0, (current_day - 1) * 10)
-    todays_new = (
-        n1_cards.order_by(models.Card.id)
-        .offset(batch_start)
-        .limit(10)
+    # Today's batch = N1 words already studied today, followed by the new ones
+    # the study queue will serve next. Both halves come from the same helpers
+    # /reviews/due uses, so "Study Now" opens exactly the words listed here —
+    # an id-slice by calendar day would drift from the queue the moment a day
+    # got skipped or another level consumed the daily allowance.
+    studied_today = (
+        db.query(models.Card)
+        .join(models.Review, models.Review.card_id == models.Card.id)
+        .filter(
+            models.Card.jlpt_level == "N1",
+            models.Card.card_type == "japanese",
+            models.Review.learned_at >= today,
+        )
+        .order_by(models.Review.learned_at.asc())
         .all()
     )
+    studied_ids = {c.id for c in studied_today}
+    todays_new = studied_today + _new_words(db, "japanese", "N1")
 
     upcoming = []
     for offset in range(1, 8):
         day_index = current_day + offset
-        remaining = total - (day_index - 1) * 10 if day_index <= total_days else 0
+        remaining = total - (day_index - 1) * per_day if day_index <= total_days else 0
         upcoming.append({
             "day_offset": offset,
-            "new_words": max(0, min(10, remaining)),
+            "new_words": max(0, min(per_day, remaining)),
         })
 
     return {
@@ -134,8 +228,15 @@ def get_n1_progress(db: Session = Depends(get_db)):
         "due_today": due_today,
         "current_day": current_day,
         "total_days": total_days,
+        "queued": queued,
         "todays_new_words": [
-            {"id": c.id, "japanese": c.japanese, "furigana": c.furigana, "english": c.english}
+            {
+                "id": c.id,
+                "japanese": c.japanese,
+                "furigana": c.furigana,
+                "english": c.english,
+                "studied": c.id in studied_ids,
+            }
             for c in todays_new
         ],
         "upcoming": upcoming,
@@ -145,21 +246,10 @@ def get_n1_progress(db: Session = Depends(get_db)):
 @router.get("/due", response_model=List[schemas.CardResponse])
 def get_due_cards(
     card_type: Optional[str] = Query(None),
+    jlpt_level: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    now = datetime.utcnow()
-    query = (
-        db.query(models.Card)
-        .join(models.Review, models.Review.card_id == models.Card.id)
-        .filter(
-            models.Review.next_review <= now,
-            models.Review.last_reviewed.is_(None),
-        )
-    )
-    if card_type:
-        query = query.filter(models.Card.card_type == card_type)
-    # Oldest-scheduled first so a backlog drains in the order it built up.
-    return query.order_by(models.Review.next_review.asc()).limit(DAILY_REVIEW_LIMIT).all()
+    return _due_queue(db, card_type, jlpt_level)
 
 
 @router.get("/learned/summary")
@@ -170,7 +260,7 @@ def get_learned_summary(
     query = (
         db.query(models.Card.jlpt_level, func.count(models.Review.id))
         .join(models.Review, models.Review.card_id == models.Card.id)
-        .filter(models.Review.last_reviewed.isnot(None))
+        .filter(models.Review.learned_at.isnot(None))
     )
     if card_type:
         query = query.filter(models.Card.card_type == card_type)
@@ -216,13 +306,15 @@ def get_learned_words(
     query = (
         db.query(models.Card)
         .join(models.Review, models.Review.card_id == models.Card.id)
-        .filter(models.Review.last_reviewed.isnot(None))
+        .filter(models.Review.learned_at.isnot(None))
     )
     if jlpt_level:
         query = query.filter(models.Card.jlpt_level == jlpt_level)
     if card_type:
         query = query.filter(models.Card.card_type == card_type)
-    return query.order_by(models.Review.last_reviewed.desc()).all()
+    # Newest-learned first. Ordering on learned_at rather than last_reviewed
+    # keeps the list stable — repeat reviews no longer reshuffle it.
+    return query.order_by(models.Review.learned_at.desc()).all()
 
 
 @router.post("/learned/{card_id}/unmark")
@@ -239,6 +331,7 @@ def unmark_learned(card_id: int, db: Session = Depends(get_db)):
     db_review.interval = 1
     db_review.repetitions = 0
     db_review.last_reviewed = None
+    db_review.learned_at = None      # back to being a new word
     db_review.next_review = datetime.utcnow()
     db.commit()
     return {"ok": True, "card_id": card_id}
@@ -261,11 +354,16 @@ def submit_review(review: schemas.ReviewCreate, db: Session = Depends(get_db)):
         db_review.repetitions,
     )
 
+    now = datetime.utcnow()
     db_review.ease_factor = new_ef
     db_review.interval = new_interval
     db_review.repetitions = new_reps
     db_review.next_review = next_review
-    db_review.last_reviewed = datetime.utcnow()
+    db_review.last_reviewed = now
+    # First time through counts the card as learned and consumes one slot of
+    # today's DAILY_NEW_LIMIT. Later reviews leave it untouched.
+    if db_review.learned_at is None:
+        db_review.learned_at = now
     db.commit()
     db.refresh(db_review)
     return db_review

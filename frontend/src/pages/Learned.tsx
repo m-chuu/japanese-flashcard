@@ -41,7 +41,7 @@ function sortWords(arr: Card[], sort: Sort): Card[] {
       (a.japanese || a.english || '').localeCompare(b.japanese || b.english || '', 'ja'),
     )
   }
-  // 'recent' — preserve backend order (last_reviewed desc)
+  // 'recent' — preserve backend order (learned_at desc)
   return arr
 }
 

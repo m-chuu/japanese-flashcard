@@ -40,6 +40,10 @@ export default function N1ProgressPage() {
   const today = new Date()
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+  const studiedToday = data.todays_new_words.filter((w) => w.studied).length
+  const allStudied =
+    data.todays_new_words.length > 0 && studiedToday === data.todays_new_words.length
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
 
@@ -112,18 +116,18 @@ export default function N1ProgressPage() {
         </div>
       </div>
 
-      {/* Today's new words */}
+      {/* Today's new words — exactly what "Study Now" will serve */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-gray-800">
             Today's new words
-            <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">
-              {data.todays_new_words.length}
+            <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold tabular-nums">
+              {studiedToday} / {data.todays_new_words.length}
             </span>
           </h2>
-          {data.due_today > 0 && (
+          {data.queued > 0 && (
             <Link
-              to="/study"
+              to="/study?deck=japanese&level=N1"
               className="text-sm bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-xl font-semibold transition-all hover:-translate-y-0.5 shadow-sm shadow-red-200"
             >
               Study Now →
@@ -138,13 +142,31 @@ export default function N1ProgressPage() {
         ) : (
           <div className="divide-y divide-gray-50">
             {data.todays_new_words.map((w) => (
-              <div key={w.id} className="flex items-center gap-4 py-2.5">
-                <span className="text-2xl font-bold text-gray-900 w-20 shrink-0">{w.japanese}</span>
+              <div
+                key={w.id}
+                className={`flex items-center gap-4 py-2.5 ${w.studied ? 'opacity-40' : ''}`}
+              >
+                <span className="w-5 shrink-0 text-emerald-500 text-sm">
+                  {w.studied ? '✓' : ''}
+                </span>
+                <span
+                  className={`text-2xl font-bold text-gray-900 w-20 shrink-0 ${
+                    w.studied ? 'line-through decoration-gray-300' : ''
+                  }`}
+                >
+                  {w.japanese}
+                </span>
                 <span className="text-sm text-indigo-500 w-24 shrink-0">{w.furigana}</span>
                 <span className="text-sm text-gray-500 truncate">{w.english}</span>
               </div>
             ))}
           </div>
+        )}
+
+        {allStudied && (
+          <p className="text-emerald-600 text-sm text-center pt-4 font-medium">
+            🎉 Today's batch is done — come back tomorrow for the next 10.
+          </p>
         )}
       </div>
 

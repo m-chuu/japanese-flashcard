@@ -107,8 +107,9 @@ Japanese FlashCard/
 | ease_factor | FLOAT | default 2.5 |
 | interval | INT | days until next review |
 | repetitions | INT | successful review streak |
-| next_review | DATETIME | UTC |
-| last_reviewed | DATETIME | nullable |
+| next_review | DATETIME | UTC — when the card re-enters the study queue |
+| last_reviewed | DATETIME | nullable — most recent review |
+| learned_at | DATETIME | nullable — first review; drives the Learned page |
 
 ---
 
@@ -293,19 +294,34 @@ The Study page uses the **SM-2 algorithm**:
 | Good | 4 | Normal interval increase |
 | Easy | 5 | Large interval increase, ease factor rises |
 
-Cards with `next_review ≤ now` appear in the study queue. After a session the next review date is stored in the `reviews` table.
+Cards with `next_review ≤ now` appear in the study queue. After a session the next review date is stored in the `reviews` table, and the card comes back once that date arrives — grading a card pushes it further out each time it's recalled successfully.
+
+### Learned vs. reviewed
+
+Two separate columns on `reviews` track two different things:
+
+| Column | Meaning | Used by |
+|---|---|---|
+| `learned_at` | First time the card was ever studied | Learned page, new-word cap |
+| `last_reviewed` | Most recent review | Streak counter |
+
+`learned_at` is what puts a word on the **Learned** page — it's set once and never moves, so repeat reviews don't reshuffle the list. Unmarking a word clears it, returning the card to the new-word pool. The study queue keys off `next_review` alone, so a learned word still comes back for review on schedule.
 
 ---
 
 ## Daily Learning Cap
 
-To keep sessions manageable, only a fixed number of **new** words are surfaced per day (default **10**). Any backlog beyond the cap rolls over to the following day(s) — a 30-card pile-up drains as 10 / 10 / 10 rather than all at once. The Study page header shows today's batch size and your studied count.
+To keep sessions manageable, only a fixed number of **new** words are surfaced per day (default **10**), counted per deck. Any backlog beyond the cap rolls over to the following day(s) — a 30-card pile-up drains as 10 / 10 / 10 rather than all at once. The cap is a true daily quota measured from `learned_at`, so refreshing the Study page can't pull tomorrow's batch forward.
 
-**To change the cap**, edit [`DAILY_REVIEW_LIMIT`](backend/routers/reviews.py#L14) in [backend/routers/reviews.py](backend/routers/reviews.py):
+Cards you've already learned and are due again don't count against that quota — they're served first, under their own per-session ceiling.
+
+**To change either limit**, edit [backend/routers/reviews.py](backend/routers/reviews.py#L12):
 
 ```python
-# Daily cap on cards surfaced for review.
-DAILY_REVIEW_LIMIT = 10   # ← change this number
+DAILY_NEW_LIMIT = 10      # new words introduced per day, per deck
+DAILY_REVIEW_LIMIT = 50   # repeat reviews per session
 ```
 
-> ⚠️ The `/reviews/stats` endpoint (used for the upcoming-days forecast and day counter) also hard-codes `10` in a few places — see [backend/routers/reviews.py:107-126](backend/routers/reviews.py#L107-L126). If you change the cap, update those `10` / `// 10` references too so the forecast stays in sync.
+The N1 forecast on the Progress page derives its day counter and upcoming-days schedule from `DAILY_NEW_LIMIT`, so it stays in sync automatically.
+
+> ⚠️ `seed_n1.py` has its own `WORDS_PER_DAY` (default **10**) that sets each card's initial unlock date at seed time. Keep it equal to `DAILY_NEW_LIMIT`, or re-seed after changing it.

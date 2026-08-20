@@ -41,8 +41,13 @@ export interface Stats {
 
 export const getStats = () => api.get<Stats>('/reviews/stats')
 
-export const getDueCards = (cardType?: string) =>
-  api.get<Card[]>('/reviews/due', { params: cardType ? { card_type: cardType } : {} })
+export const getDueCards = (cardType?: string, jlptLevel?: string) =>
+  api.get<Card[]>('/reviews/due', {
+    params: {
+      ...(cardType ? { card_type: cardType } : {}),
+      ...(jlptLevel ? { jlpt_level: jlptLevel } : {}),
+    },
+  })
 
 export const submitReview = (cardId: number, quality: number) =>
   api.post('/reviews/', { card_id: cardId, quality })
@@ -52,6 +57,7 @@ export interface N1WordPreview {
   japanese: string
   furigana: string
   english: string
+  studied: boolean
 }
 
 export interface N1Progress {
@@ -62,6 +68,8 @@ export interface N1Progress {
   due_today: number
   current_day: number
   total_days: number
+  /** Cards a "Study Now" tap from the N1 page will serve right now. */
+  queued: number
   todays_new_words: N1WordPreview[]
   upcoming: { day_offset: number; new_words: number }[]
 }
