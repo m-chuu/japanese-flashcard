@@ -21,6 +21,21 @@ DAILY_REVIEW_LIMIT = 50
 router = APIRouter()
 
 
+def _as_date(value) -> date:
+    """Normalise whatever the driver returns for SQL DATE() to a date.
+
+    SQLAlchemy doesn't type func.date(), so the value comes back however the
+    driver renders it — a datetime.date on MySQL, a 'YYYY-MM-DD' string on
+    SQLite. Comparing the string form against date.today() silently yields a
+    zero streak, or raises when the loop reaches a `<` comparison.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+
+
 def _new_word_allowance(db: Session, card_type: Optional[str] = None) -> int:
     """Slots left in today's new-word budget for a deck.
 
@@ -102,7 +117,12 @@ def get_stats(db: Session = Depends(get_db)):
     # Count what the study queue will actually serve, per deck — each deck gets
     # its own DAILY_NEW_LIMIT, so a raw `next_review <= now` count would report
     # a number the user cannot act on.
-    card_types = [t for (t,) in db.query(models.Card.card_type).distinct()]
+    #
+    # `if t` matters: _due_queue treats a falsy card_type as "every deck", so a
+    # row with a NULL card_type would fold the whole queue into the sum on top
+    # of the per-deck counts. Such rows belong to neither tab and can't be
+    # studied, so they're left out of the count too.
+    card_types = [t for (t,) in db.query(models.Card.card_type).distinct() if t]
     due_today = sum(len(_due_queue(db, t)) for t in card_types)
 
     mastered = db.query(func.count(models.Review.id)).filter(
@@ -117,7 +137,7 @@ def get_stats(db: Session = Depends(get_db)):
     )
 
     parsed_dates = sorted(
-        {d[0] for d in reviewed_dates_raw if d[0] is not None},
+        {_as_date(d[0]) for d in reviewed_dates_raw if d[0] is not None},
         reverse=True,
     )
 
