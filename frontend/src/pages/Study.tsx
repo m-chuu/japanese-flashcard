@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getDueCards, submitReview } from '../api/client'
 import type { Card } from '../types'
@@ -165,6 +165,7 @@ export default function Study() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const submitting = useRef(false)
 
   useEffect(() => {
     if (!deck) return
@@ -173,6 +174,7 @@ export default function Study() {
     setIndex(0)
     setReviewed(0)
     setDone(false)
+    submitting.current = false
     getDueCards(deck, level)
       .then((r) => {
         setCards(r.data)
@@ -183,12 +185,29 @@ export default function Study() {
   }, [deck, level, reloadKey])
 
   async function handleQuality(quality: number) {
-    await submitReview(cards[index].id, quality)
-    setReviewed((n) => n + 1)
-    if (index + 1 >= cards.length) {
-      setDone(true)
-    } else {
-      setIndex((i) => i + 1)
+    // Bail if a grade is already in flight. This has to be a ref, not state:
+    // two key events can fire in the same tick, before React re-renders, so
+    // both would read the same `index` — grading one card twice while the next
+    // one slides past unreviewed.
+    if (submitting.current) return
+    const card = cards[index]
+    if (!card) return
+
+    submitting.current = true
+    try {
+      await submitReview(card.id, quality)
+      setReviewed((n) => n + 1)
+      if (index + 1 >= cards.length) {
+        setDone(true)
+      } else {
+        setIndex((i) => i + 1)
+      }
+    } catch {
+      // Without this the rejection is unhandled and the session stalls on a
+      // card with no explanation.
+      setError('Could not save your review — is the backend running at localhost:8000?')
+    } finally {
+      submitting.current = false
     }
   }
 
