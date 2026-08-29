@@ -1,8 +1,10 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from database import get_db
 import models
@@ -21,19 +23,35 @@ DAILY_REVIEW_LIMIT = 50
 router = APIRouter()
 
 
-def _as_date(value) -> date:
-    """Normalise whatever the driver returns for SQL DATE() to a date.
+# Timestamps are stored as naive UTC (datetime.utcnow), but "today" is a
+# question about where the user actually is: for a Tokyo learner, a 07:00
+# session happened at 22:00 UTC *yesterday*. Bucketing by UTC date would push
+# every morning review onto the previous day, breaking streaks and resetting
+# the new-word quota mid-morning. Set APP_TIMEZONE (e.g. Asia/Tokyo) to the
+# zone you study in; it defaults to the server's local zone.
+def _app_zone() -> tzinfo:
+    name = os.getenv("APP_TIMEZONE")
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            # A typo shouldn't take down the Home page — fall back to local.
+            pass
+    local = datetime.now().astimezone().tzinfo
+    return local or timezone.utc
 
-    SQLAlchemy doesn't type func.date(), so the value comes back however the
-    driver renders it — a datetime.date on MySQL, a 'YYYY-MM-DD' string on
-    SQLite. Comparing the string form against date.today() silently yields a
-    zero streak, or raises when the loop reaches a `<` comparison.
-    """
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+
+def _to_local_date(stored: datetime, zone: tzinfo) -> date:
+    """Calendar day a stored (naive UTC) timestamp falls on, in `zone`."""
+    return stored.replace(tzinfo=timezone.utc).astimezone(zone).date()
+
+
+def _local_day_start(zone: tzinfo) -> datetime:
+    """Midnight today in `zone`, as naive UTC for comparing against columns."""
+    local_midnight = datetime.now(zone).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _new_word_allowance(db: Session, card_type: Optional[str] = None) -> int:
