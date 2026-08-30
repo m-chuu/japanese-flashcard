@@ -58,12 +58,12 @@ def _new_word_allowance(db: Session, card_type: Optional[str] = None) -> int:
     """Slots left in today's new-word budget for a deck.
 
     Counted from learned_at rather than per request, so refreshing the Study
-    page cannot pull tomorrow's batch forward. The budget is per deck and is
+    page cannot pull tomorrow's batch forward. The day rolls over at local
+    midnight in the study timezone, matching the streak. The budget is per deck and is
     shared across JLPT levels — studying N5 words spends the same allowance an
     N1 session draws on.
     """
-    # learned_at is stored in UTC, so anchor the day boundary in UTC too.
-    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = _local_day_start(_app_zone())
     query = (
         db.query(func.count(models.Review.id))
         .join(models.Card, models.Card.id == models.Review.card_id)
@@ -147,22 +147,27 @@ def get_stats(db: Session = Depends(get_db)):
         models.Review.interval >= 21
     ).scalar() or 0
 
-    reviewed_dates_raw = (
-        db.query(func.date(models.Review.last_reviewed))
+    # Bucket reviews into calendar days in the study timezone. Pulling the raw
+    # timestamps and converting in Python — rather than SQL DATE() — is what
+    # makes the zone knowable at all, and it drops an untyped func.date() whose
+    # return type varied by driver (a date on MySQL, a string on SQLite).
+    zone = _app_zone()
+    reviewed_at = (
+        db.query(models.Review.last_reviewed)
         .filter(models.Review.last_reviewed.isnot(None))
-        .distinct()
         .all()
     )
-
     parsed_dates = sorted(
-        {_as_date(d[0]) for d in reviewed_dates_raw if d[0] is not None},
+        {_to_local_date(ts, zone) for (ts,) in reviewed_at if ts is not None},
         reverse=True,
     )
 
     streak = 0
-    today = date.today()
+    today = datetime.now(zone).date()
     check = today
 
+    # Not having studied *yet today* doesn't break a streak — only a missed
+    # day does — so start counting from yesterday in that case.
     if parsed_dates and parsed_dates[0] != today:
         check = today - timedelta(days=1)
 
@@ -184,7 +189,10 @@ def get_stats(db: Session = Depends(get_db)):
 @router.get("/n1-progress")
 def get_n1_progress(db: Session = Depends(get_db)):
     now = datetime.utcnow()
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    zone = _app_zone()
+    # Same local-midnight boundary the streak and the new-word quota use, so
+    # "studied today" means one thing across the whole app.
+    today = _local_day_start(zone)
 
     n1_cards = db.query(models.Card).filter(models.Card.jlpt_level == "N1")
     total = n1_cards.count()
@@ -224,8 +232,10 @@ def get_n1_progress(db: Session = Depends(get_db)):
     )
     current_day = 0
     if earliest:
-        start = earliest.replace(hour=0, minute=0, second=0, microsecond=0)
-        current_day = max(1, (today - start).days + 1)
+        # Whole days between two local calendar dates — mixing a local-midnight
+        # boundary with a UTC-floored start would drift by a day.
+        start_day = _to_local_date(earliest, zone)
+        current_day = max(1, (datetime.now(zone).date() - start_day).days + 1)
 
     per_day = DAILY_NEW_LIMIT
     total_days = (total + per_day - 1) // per_day

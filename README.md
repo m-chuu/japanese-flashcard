@@ -142,6 +142,19 @@ If MySQL was installed without a root password (Homebrew default):
 DATABASE_URL=mysql+pymysql://root:@localhost:3306/japanese_flashcard
 ```
 
+**Study timezone** — reviews are stored in UTC, so the app needs to know which
+calendar day a given timestamp counts toward. Set the zone you actually study
+in (IANA name); it defaults to the server's local timezone if unset:
+
+```
+APP_TIMEZONE=Asia/Tokyo
+```
+
+This drives both the day-streak counter and the 10-new-words/day quota. Without
+it, a 07:00 Tokyo session is stored as 22:00 UTC the previous day — so a perfect
+daily habit reads as a broken streak, and the new-word quota resets at 09:00
+local instead of midnight.
+
 **Existing database migration** — if you already have a `cards` table from before the English flashcard feature was added, run this once to add the new column:
 
 ```sql
