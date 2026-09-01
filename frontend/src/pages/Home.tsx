@@ -88,31 +88,45 @@ export default function Home() {
 
   useEffect(() => {
     getStats().then((r) => setStats(r.data)).catch(() => {})
-    getDueCards('japanese').then((r) => setJpDue(r.data.length))
-    getDueCards('english').then((r) => setEnDue(r.data.length))
+    getDueCards('japanese').then((r) => setJpDue(r.data.length)).catch(() => {})
+    getDueCards('english').then((r) => setEnDue(r.data.length)).catch(() => {})
   }, [])
 
-  useEffect(() => {
+  // Deck and filter change together, so resetting the filter here rather than
+  // in a [deck] effect keeps it to one render — and therefore one fetch. The
+  // old split fired this effect twice per deck switch: once with the new deck
+  // and the previous deck's filter, then again after the reset landed.
+  function switchDeck(next: DeckTab) {
+    setDeck(next)
     setFilter('All')
-  }, [deck])
+  }
 
   useEffect(() => {
-    loadCards()
-  }, [deck, filter])
-
-  async function loadCards() {
+    // Cancel the previous request whenever deck/filter change again before it
+    // lands. Without this, clicking N5 → N4 → N3 quickly leaves three requests
+    // racing, and whichever resolves last wins — so the grid can end up showing
+    // N5 cards with the N3 pill highlighted.
+    const controller = new AbortController()
     setLoading(true)
-    try {
-      const jlptFilter = deck === 'japanese' && filter !== 'All' ? filter : undefined
-      const res = await getCards(jlptFilter, deck)
-      setCards(res.data)
-    } catch (err) {
-      console.error('Failed to load cards:', err)
-      setCards([])
-    } finally {
-      setLoading(false)
-    }
-  }
+
+    const jlptFilter = deck === 'japanese' && filter !== 'All' ? filter : undefined
+    getCards(jlptFilter, deck, controller.signal)
+      .then((res) => {
+        // A response can resolve in the same tick the abort fires, so check
+        // here too — the newer request owns the UI from that point on.
+        if (controller.signal.aborted) return
+        setCards(res.data)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return
+        console.error('Failed to load cards:', err)
+        setCards([])
+        setLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [deck, filter])
 
   async function handleDelete(id: number) {
     if (!confirm('Delete this card?')) return
@@ -163,7 +177,7 @@ export default function Home() {
       {/* Deck tabs */}
       <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1 w-fit">
         <button
-          onClick={() => setDeck('japanese')}
+          onClick={() => switchDeck('japanese')}
           className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
             deck === 'japanese'
               ? 'bg-white text-indigo-700 shadow-sm'
@@ -178,7 +192,7 @@ export default function Home() {
           )}
         </button>
         <button
-          onClick={() => setDeck('english')}
+          onClick={() => switchDeck('english')}
           className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
             deck === 'english'
               ? 'bg-white text-emerald-700 shadow-sm'

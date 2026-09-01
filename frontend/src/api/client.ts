@@ -3,12 +3,13 @@ import type { Card, JishoLookup, EnglishLookup, IdiomLookup } from '../types'
 
 const api = axios.create({ baseURL: 'http://localhost:8000' })
 
-export const getCards = (jlptLevel?: string, cardType?: string) =>
+export const getCards = (jlptLevel?: string, cardType?: string, signal?: AbortSignal) =>
   api.get<Card[]>('/cards/', {
     params: {
       ...(jlptLevel ? { jlpt_level: jlptLevel } : {}),
       ...(cardType ? { card_type: cardType } : {}),
     },
+    signal,
   })
 
 export const getCard = (id: number) => api.get<Card>(`/cards/${id}`)
