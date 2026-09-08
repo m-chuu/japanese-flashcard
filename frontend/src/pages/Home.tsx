@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getCards, deleteCard, getDueCards, getStats } from '../api/client'
 import type { Stats } from '../api/client'
@@ -86,11 +86,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<Stats | null>(null)
 
-  useEffect(() => {
+  // Every counter on this page is server-derived. The card list carries no
+  // review state, so the client cannot tell whether a given card was due,
+  // mastered, or neither — any local arithmetic is a guess. Re-reading after a
+  // mutation is a round trip, but deletes are rare and deliberate.
+  const loadCounts = useCallback(() => {
     getStats().then((r) => setStats(r.data)).catch(() => {})
     getDueCards('japanese').then((r) => setJpDue(r.data.length)).catch(() => {})
     getDueCards('english').then((r) => setEnDue(r.data.length)).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadCounts()
+  }, [loadCounts])
 
   // Deck and filter change together, so resetting the filter here rather than
   // in a [deck] effect keeps it to one render — and therefore one fetch. The
@@ -130,10 +138,15 @@ export default function Home() {
 
   async function handleDelete(id: number) {
     if (!confirm('Delete this card?')) return
-    await deleteCard(id)
+    try {
+      await deleteCard(id)
+    } catch (err) {
+      // The card stays in the grid — nothing was removed server-side.
+      console.error('Failed to delete card:', err)
+      return
+    }
     setCards((prev) => prev.filter((c) => c.id !== id))
-    if (deck === 'japanese') setJpDue((n) => Math.max(0, n - 1))
-    else setEnDue((n) => Math.max(0, n - 1))
+    loadCounts()
   }
 
   const totalDue = jpDue + enDue
