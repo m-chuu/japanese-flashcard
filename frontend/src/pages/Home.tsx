@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getCards, deleteCard, getDueCards, getStats } from '../api/client'
-import type { Stats } from '../api/client'
+import { getCards, deleteCard, getDueCount, getStats } from '../api/client'
+import type { Stats, DueCount } from '../api/client'
 import type { Card } from '../types'
 import { JLPT_LEVELS } from '../types'
 
@@ -80,8 +80,8 @@ function StatCard({
 export default function Home() {
   const [deck, setDeck] = useState<DeckTab>('japanese')
   const [cards, setCards] = useState<Card[]>([])
-  const [jpDue, setJpDue] = useState(0)
-  const [enDue, setEnDue] = useState(0)
+  const [jpDue, setJpDue] = useState<DueCount>({ due: 0, pending: 0 })
+  const [enDue, setEnDue] = useState<DueCount>({ due: 0, pending: 0 })
   const [filter, setFilter] = useState('All')
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -92,8 +92,8 @@ export default function Home() {
   // mutation is a round trip, but deletes are rare and deliberate.
   const loadCounts = useCallback(() => {
     getStats().then((r) => setStats(r.data)).catch(() => {})
-    getDueCards('japanese').then((r) => setJpDue(r.data.length)).catch(() => {})
-    getDueCards('english').then((r) => setEnDue(r.data.length)).catch(() => {})
+    getDueCount('japanese').then((r) => setJpDue(r.data)).catch(() => {})
+    getDueCount('english').then((r) => setEnDue(r.data)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -149,7 +149,10 @@ export default function Home() {
     loadCounts()
   }
 
-  const totalDue = jpDue + enDue
+  const totalDue = jpDue.due + enDue.due
+  // Anything past its review date that today's caps hold back. Shown rather
+  // than swallowed, so a capped badge doesn't look like the whole backlog.
+  const heldBack = jpDue.pending + enDue.pending - totalDue
 
   return (
     <div>
@@ -166,15 +169,23 @@ export default function Home() {
       {/* Due-cards banner */}
       {totalDue > 0 && (
         <div className="mb-5 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-100 rounded-2xl px-5 py-3.5 gap-4 flex-wrap shadow-sm">
-          <div className="flex gap-4 text-sm">
-            {jpDue > 0 && (
+          <div className="flex gap-4 text-sm items-center flex-wrap">
+            {jpDue.due > 0 && (
               <span className="text-indigo-700 font-semibold flex items-center gap-1.5">
-                🇯🇵 {jpDue} JP due
+                🇯🇵 {jpDue.due} JP due
               </span>
             )}
-            {enDue > 0 && (
+            {enDue.due > 0 && (
               <span className="text-emerald-700 font-semibold flex items-center gap-1.5">
-                🇬🇧 {enDue} EN due
+                🇬🇧 {enDue.due} EN due
+              </span>
+            )}
+            {heldBack > 0 && (
+              <span
+                className="text-xs text-gray-400 font-medium"
+                title="Held back by the daily limits — these roll over to the coming days."
+              >
+                +{heldBack} waiting
               </span>
             )}
           </div>
@@ -198,9 +209,9 @@ export default function Home() {
           }`}
         >
           🇯🇵 Japanese
-          {jpDue > 0 && (
+          {jpDue.due > 0 && (
             <span className="ml-2 text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
-              {jpDue}
+              {jpDue.due}
             </span>
           )}
         </button>
@@ -213,9 +224,9 @@ export default function Home() {
           }`}
         >
           🇬🇧 English
-          {enDue > 0 && (
+          {enDue.due > 0 && (
             <span className="ml-2 text-xs bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full">
-              {enDue}
+              {enDue.due}
             </span>
           )}
         </button>

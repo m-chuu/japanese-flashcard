@@ -50,6 +50,21 @@ export const getDueCards = (cardType?: string, jlptLevel?: string) =>
     },
   })
 
+export interface DueCount {
+  /** What a session started right now would serve — both daily caps applied. */
+  due: number
+  /** Everything past its review date, including what's behind the caps. */
+  pending: number
+}
+
+export const getDueCount = (cardType?: string, jlptLevel?: string) =>
+  api.get<DueCount>('/reviews/due/count', {
+    params: {
+      ...(cardType ? { card_type: cardType } : {}),
+      ...(jlptLevel ? { jlpt_level: jlptLevel } : {}),
+    },
+  })
+
 export const submitReview = (cardId: number, quality: number) =>
   api.post('/reviews/', { card_id: cardId, quality })
 

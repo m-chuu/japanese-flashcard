@@ -1,18 +1,46 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { getDueCards, submitReview } from '../api/client'
+import { getDueCards, getDueCount, submitReview } from '../api/client'
+import type { DueCount } from '../api/client'
 import type { Card } from '../types'
 import FlashCard from '../components/FlashCard'
 
 type Deck = 'japanese' | 'english'
 
+const NO_DUE: DueCount = { due: 0, pending: 0 }
+
+/** "10 due", plus what the daily caps are holding back. */
+function DueLabel({ count, theme }: { count: DueCount; theme: 'indigo' | 'emerald' }) {
+  const held = count.pending - count.due
+  return (
+    <>
+      <span
+        className={`mt-2 inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full ${
+          count.due > 0
+            ? theme === 'indigo'
+              ? 'bg-indigo-100 text-indigo-700'
+              : 'bg-emerald-100 text-emerald-700'
+            : 'bg-gray-100 text-gray-400'
+        }`}
+      >
+        {count.due > 0 ? `${count.due} due` : 'No cards due'}
+      </span>
+      {held > 0 && (
+        <span className="text-[11px] text-gray-400">
+          +{held} waiting for the coming days
+        </span>
+      )}
+    </>
+  )
+}
+
 function DeckPicker({ onPick }: { onPick: (deck: Deck) => void }) {
-  const [jpDue, setJpDue] = useState<number | null>(null)
-  const [enDue, setEnDue] = useState<number | null>(null)
+  const [jpDue, setJpDue] = useState<DueCount | null>(null)
+  const [enDue, setEnDue] = useState<DueCount | null>(null)
 
   useEffect(() => {
-    getDueCards('japanese').then((r) => setJpDue(r.data.length)).catch(() => setJpDue(0))
-    getDueCards('english').then((r) => setEnDue(r.data.length)).catch(() => setEnDue(0))
+    getDueCount('japanese').then((r) => setJpDue(r.data)).catch(() => setJpDue(NO_DUE))
+    getDueCount('english').then((r) => setEnDue(r.data)).catch(() => setEnDue(NO_DUE))
   }, [])
 
   return (
@@ -33,17 +61,7 @@ function DeckPicker({ onPick }: { onPick: (deck: Deck) => void }) {
             <span className="text-5xl">🇯🇵</span>
             <span className="text-xl font-bold text-gray-800 group-hover:text-indigo-700 transition-colors">Japanese</span>
             <span className="text-xs text-gray-400">Kanji → meaning</span>
-            {jpDue !== null && (
-              <span
-                className={`mt-2 inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full ${
-                  jpDue > 0
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'bg-gray-100 text-gray-400'
-                }`}
-              >
-                {jpDue > 0 ? `${jpDue} due` : 'No cards due'}
-              </span>
-            )}
+            {jpDue !== null && <DueLabel count={jpDue} theme="indigo" />}
           </div>
         </button>
 
@@ -57,17 +75,7 @@ function DeckPicker({ onPick }: { onPick: (deck: Deck) => void }) {
             <span className="text-5xl">🇬🇧</span>
             <span className="text-xl font-bold text-gray-800 group-hover:text-emerald-700 transition-colors">English</span>
             <span className="text-xs text-gray-400">Word → definition</span>
-            {enDue !== null && (
-              <span
-                className={`mt-2 inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full ${
-                  enDue > 0
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-gray-100 text-gray-400'
-                }`}
-              >
-                {enDue > 0 ? `${enDue} due` : 'No cards due'}
-              </span>
-            )}
+            {enDue !== null && <DueLabel count={enDue} theme="emerald" />}
           </div>
         </button>
       </div>

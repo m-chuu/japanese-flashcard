@@ -128,6 +128,26 @@ def _due_queue(
     )
 
 
+def _due_counts(
+    db: Session, card_type: Optional[str] = None, jlpt_level: Optional[str] = None
+) -> dict:
+    """Queue size and backlog, without loading a single card row.
+
+    `due` mirrors len(_due_queue(...)) exactly — the number a session started
+    now would hand you, both caps applied. `pending` is everything past its
+    review date, so callers can say what's waiting behind the cap instead of
+    silently truncating.
+    """
+    base = _due(db, card_type, jlpt_level)
+    repeats = base.filter(models.Review.learned_at.isnot(None)).count()
+    new = base.filter(models.Review.learned_at.is_(None)).count()
+    allowance = _new_word_allowance(db, card_type)
+    return {
+        "due": min(repeats, DAILY_REVIEW_LIMIT) + min(new, allowance),
+        "pending": repeats + new,
+    }
+
+
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     total_cards = db.query(func.count(models.Card.id)).scalar() or 0
@@ -141,7 +161,7 @@ def get_stats(db: Session = Depends(get_db)):
     # of the per-deck counts. Such rows belong to neither tab and can't be
     # studied, so they're left out of the count too.
     card_types = [t for (t,) in db.query(models.Card.card_type).distinct() if t]
-    due_today = sum(len(_due_queue(db, t)) for t in card_types)
+    due_today = sum(_due_counts(db, t)["due"] for t in card_types)
 
     mastered = db.query(func.count(models.Review.id)).filter(
         models.Review.interval >= 21
@@ -298,6 +318,16 @@ def get_due_cards(
     db: Session = Depends(get_db),
 ):
     return _due_queue(db, card_type, jlpt_level)
+
+
+@router.get("/due/count")
+def get_due_count(
+    card_type: Optional[str] = Query(None),
+    jlpt_level: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Counts for badges — avoids shipping full card rows just to call .length."""
+    return _due_counts(db, card_type, jlpt_level)
 
 
 @router.get("/learned/summary")
