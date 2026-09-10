@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { createCard, updateCard, getCard, lookupWord } from '../api/client'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { createCard, updateCard, lookupWord } from '../api/client'
 import { JLPT_LEVELS } from '../types'
+import type { Card } from '../types'
 
 const emptyForm = {
   japanese: '',
@@ -12,24 +13,26 @@ const emptyForm = {
   jlpt_level: 'Unknown',
 }
 
-export default function AddCard() {
-  const { id } = useParams()
+function formFrom(card: Card) {
+  return {
+    japanese: card.japanese ?? '',
+    furigana: card.furigana ?? '',
+    english: card.english ?? '',
+    example_sentence: card.example_sentence ?? '',
+    synonym: card.synonym ?? '',
+    jlpt_level: card.jlpt_level || 'Unknown',
+  }
+}
+
+/** `card` is supplied by EditCard; without it this is the create form. */
+export default function AddCard({ card }: { card?: Card }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const isEdit = !!id
+  const isEdit = !!card
 
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => (card ? formFrom(card) : emptyForm))
   const [saving, setSaving] = useState(false)
   const [lookingUp, setLookingUp] = useState(false)
-
-  // Load existing card when editing
-  useEffect(() => {
-    if (!isEdit) return
-    getCard(Number(id)).then((res) => {
-      const { id: _, created_at: __, ...fields } = res.data
-      setForm({ ...emptyForm, ...fields })
-    })
-  }, [id, isEdit])
 
   const handleLookup = useCallback(async (word: string) => {
     if (!word.trim()) return
@@ -73,15 +76,21 @@ export default function AddCard() {
     e.preventDefault()
     setSaving(true)
     try {
-      if (isEdit) {
-        await updateCard(Number(id), form)
+      if (card) {
+        // card_type has to travel with the update: the backend writes every
+        // field of CardCreate, and its card_type defaults to "japanese", so
+        // omitting it would move the card into the other deck.
+        await updateCard(card.id, { ...form, card_type: card.card_type })
       } else {
-        await createCard(form)
+        await createCard({ ...form, card_type: 'japanese' })
       }
       navigate('/')
-    } finally {
+    } catch (err) {
+      console.error('Failed to save card:', err)
       setSaving(false)
+      return
     }
+    setSaving(false)
   }
 
   return (

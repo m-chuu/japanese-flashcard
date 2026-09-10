@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createCard, lookupEnglishWord, lookupIdiom } from '../api/client'
-import type { IdiomLookup } from '../types'
+import { createCard, updateCard, lookupEnglishWord, lookupIdiom } from '../api/client'
+import type { Card, IdiomLookup } from '../types'
 
 const emptyForm = {
   word: '',
@@ -12,9 +12,26 @@ const emptyForm = {
   part_of_speech: '',
 }
 
-export default function AddEnglishCard() {
+// English cards reuse the Japanese columns: the term lives in `japanese`, IPA
+// in `furigana`, and the part of speech in `jlpt_level`.
+function formFrom(card: Card) {
+  return {
+    word: card.japanese ?? '',
+    phonetic: card.furigana ?? '',
+    definition: card.english ?? '',
+    example: card.example_sentence ?? '',
+    synonyms: card.synonym ?? '',
+    // "Unknown" is the placeholder written when no part of speech was given —
+    // show it as empty rather than as a literal value the user has to clear.
+    part_of_speech: card.jlpt_level === 'Unknown' ? '' : card.jlpt_level ?? '',
+  }
+}
+
+/** `card` is supplied by EditCard; without it this is the create form. */
+export default function AddEnglishCard({ card }: { card?: Card }) {
   const navigate = useNavigate()
-  const [form, setForm] = useState(emptyForm)
+  const isEdit = !!card
+  const [form, setForm] = useState(() => (card ? formFrom(card) : emptyForm))
   const [saving, setSaving] = useState(false)
   const [lookingUp, setLookingUp] = useState(false)
   const [notFound, setNotFound] = useState(false)
@@ -96,27 +113,37 @@ export default function AddEnglishCard() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    try {
-      await createCard({
-        card_type: 'english',
-        japanese: form.word,           // word stored in 'japanese' field (the term)
-        furigana: form.phonetic,       // IPA stored in 'furigana'
-        english: form.definition,
-        example_sentence: form.example,
-        synonym: form.synonyms,
-        jlpt_level: form.part_of_speech || 'Unknown',
-      })
-      navigate('/')
-    } finally {
-      setSaving(false)
+    const payload = {
+      card_type: 'english',
+      japanese: form.word,           // word stored in 'japanese' field (the term)
+      furigana: form.phonetic,       // IPA stored in 'furigana'
+      english: form.definition,
+      example_sentence: form.example,
+      synonym: form.synonyms,
+      jlpt_level: form.part_of_speech || 'Unknown',
     }
+    try {
+      if (card) {
+        await updateCard(card.id, payload)
+      } else {
+        await createCard(payload)
+      }
+      navigate('/')
+    } catch (err) {
+      console.error('Failed to save card:', err)
+      setSaving(false)
+      return
+    }
+    setSaving(false)
   }
 
   return (
     <div className="max-w-lg mx-auto">
       <div className="flex items-center gap-2 mb-6">
         <span className="text-2xl">🇬🇧</span>
-        <h2 className="text-2xl font-bold text-gray-800">Add English Card</h2>
+        <h2 className="text-2xl font-bold text-gray-800">
+          {isEdit ? 'Edit English Card' : 'Add English Card'}
+        </h2>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -218,7 +245,7 @@ export default function AddEnglishCard() {
             disabled={saving}
             className="flex-1 bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-medium"
           >
-            {saving ? 'Saving…' : 'Add English Card'}
+            {saving ? 'Saving…' : isEdit ? 'Update Card' : 'Add English Card'}
           </button>
           <button
             type="button"
