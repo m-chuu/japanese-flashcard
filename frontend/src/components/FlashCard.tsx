@@ -12,7 +12,6 @@ const ratings = [
   {
     label: 'Again',
     quality: 0,
-    hint: '<1m',
     key: '1',
     style:
       'bg-white border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 shadow-sm hover:shadow',
@@ -21,7 +20,6 @@ const ratings = [
   {
     label: 'Hard',
     quality: 3,
-    hint: '~1d',
     key: '2',
     style:
       'bg-white border border-orange-200 text-orange-600 hover:bg-orange-50 hover:border-orange-300 shadow-sm hover:shadow',
@@ -30,7 +28,6 @@ const ratings = [
   {
     label: 'Good',
     quality: 4,
-    hint: '~3d',
     key: '3',
     style:
       'bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 shadow-sm hover:shadow',
@@ -39,13 +36,21 @@ const ratings = [
   {
     label: 'Easy',
     quality: 5,
-    hint: '~7d',
     key: '4',
     style:
       'bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300 shadow-sm hover:shadow',
     keyStyle: 'bg-blue-50 text-blue-600',
   },
 ]
+
+/** Compact form of an interval in days: 1d, 6d, 3w, 8mo, 1.4y. */
+function formatInterval(days: number): string {
+  if (days < 1) return '<1d'
+  if (days < 7) return `${days}d`
+  if (days < 30) return `${Math.round(days / 7)}w`
+  if (days < 365) return `${Math.round(days / 30)}mo`
+  return `${(days / 365).toFixed(1)}y`
+}
 
 const jlptBadge: Record<string, string> = {
   N5: 'bg-emerald-100 text-emerald-700',
@@ -286,25 +291,33 @@ export default function FlashCard({ card, onQuality }: Props) {
       {flipped ? (
         <div className="flex flex-col items-center gap-2 animate-[fadeIn_0.3s_ease-out]">
           <div className="flex gap-2.5 flex-wrap justify-center">
-            {ratings.map(({ label, quality, hint, key, style, keyStyle }) => (
-              <button
-                key={label}
-                onClick={() => handleQuality(quality)}
-                className={`flex flex-col items-center min-w-[78px] px-4 py-2.5 rounded-2xl font-semibold text-sm transition-all hover:-translate-y-0.5 active:translate-y-0 ${style}`}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={`text-[10px] font-bold w-4 h-4 inline-flex items-center justify-center rounded ${keyStyle}`}
-                  >
-                    {key}
+            {ratings.map(({ label, quality, key, style, keyStyle }) => {
+              // Real interval for this card, straight from the server's SM-2
+              // state. Omitted rather than guessed if the card predates the
+              // field, so the label is never a number the scheduler won't honour.
+              const days = card.next_intervals?.[quality]
+              return (
+                <button
+                  key={label}
+                  onClick={() => handleQuality(quality)}
+                  className={`flex flex-col items-center min-w-[78px] px-4 py-2.5 rounded-2xl font-semibold text-sm transition-all hover:-translate-y-0.5 active:translate-y-0 ${style}`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className={`text-[10px] font-bold w-4 h-4 inline-flex items-center justify-center rounded ${keyStyle}`}
+                    >
+                      {key}
+                    </span>
+                    {label}
                   </span>
-                  {label}
-                </span>
-                <span className="text-[10px] text-gray-400 font-medium mt-0.5">
-                  {hint}
-                </span>
-              </button>
-            ))}
+                  {days !== undefined && (
+                    <span className="text-[10px] text-gray-400 font-medium mt-0.5">
+                      {formatInterval(days)}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
           <p className="text-[10px] text-gray-300 tracking-wide uppercase font-medium mt-1">
             Use keys 1–4 to rate

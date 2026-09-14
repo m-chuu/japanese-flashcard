@@ -21,6 +21,13 @@ class CardResponse(CardCreate):
     model_config = {"from_attributes": True}
 
 
+class DueCardResponse(CardResponse):
+    # Days until the next review for each rating button (keyed by SM-2 quality),
+    # computed from this card's live review state. Lets the Study page label the
+    # buttons with real numbers instead of fixed guesses.
+    next_intervals: dict[int, int] = {}
+
+
 class CardNoteUpdate(BaseModel):
     note: str
 

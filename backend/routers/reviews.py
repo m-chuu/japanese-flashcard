@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from database import get_db
 import models
 import schemas
-from srs import sm2
+from srs import sm2, preview_intervals
 
 # New words introduced per calendar day, per deck. Backlog beyond this rolls
 # to the next day(s) — keeps a 30-card pile-up from becoming a 30-card session.
@@ -311,13 +311,34 @@ def get_n1_progress(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/due", response_model=List[schemas.CardResponse])
+@router.get("/due", response_model=List[schemas.DueCardResponse])
 def get_due_cards(
     card_type: Optional[str] = Query(None),
     jlpt_level: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    return _due_queue(db, card_type, jlpt_level)
+    cards = _due_queue(db, card_type, jlpt_level)
+    if not cards:
+        return []
+
+    # One query for the whole batch rather than touching card.review per card.
+    reviews = {
+        r.card_id: r
+        for r in db.query(models.Review).filter(
+            models.Review.card_id.in_([c.id for c in cards])
+        )
+    }
+
+    out = []
+    for card in cards:
+        item = schemas.DueCardResponse.model_validate(card)
+        review = reviews.get(card.id)
+        if review:
+            item.next_intervals = preview_intervals(
+                review.ease_factor, review.interval, review.repetitions
+            )
+        out.append(item)
+    return out
 
 
 @router.get("/due/count")

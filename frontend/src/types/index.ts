@@ -9,6 +9,12 @@ export interface Card {
   jlpt_level: string
   note: string
   created_at: string
+  /**
+   * Days until the next review for each rating button, keyed by SM-2 quality
+   * (0 = Again, 3 = Hard, 4 = Good, 5 = Easy). Only sent by /reviews/due —
+   * absent when a card comes from the card list or the learned view.
+   */
+  next_intervals?: Record<number, number>
 }
 
 export interface EnglishLookup {

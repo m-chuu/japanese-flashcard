@@ -24,3 +24,26 @@ def sm2(quality: int, ease_factor: float, interval: int, repetitions: int):
 
     next_review = datetime.utcnow() + timedelta(days=interval)
     return ease_factor, interval, repetitions, next_review
+
+
+# The rating buttons the Study page offers, as SM-2 quality scores.
+RATING_QUALITIES = (0, 3, 4, 5)
+
+
+def preview_intervals(
+    ease_factor: float, interval: int, repetitions: int
+) -> dict[int, int]:
+    """Days until the next review for each rating button, given a card's state.
+
+    sm2() is pure, so each grade can simply be run against the current state.
+    Deriving the Study page's hints from here rather than restating them in the
+    UI keeps them honest — a hardcoded "~3d" cannot track a card that is
+    actually 238 days out.
+
+    Note that 3/4/5 all yield the same interval: in SM-2 the grade moves
+    ease_factor, which only shows up in *later* intervals.
+    """
+    return {
+        quality: sm2(quality, ease_factor, interval, repetitions)[1]
+        for quality in RATING_QUALITIES
+    }
