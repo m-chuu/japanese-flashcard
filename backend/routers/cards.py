@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from functools import lru_cache
+from urllib.parse import quote
 import httpx
 import json
 import os
@@ -108,12 +109,17 @@ async def lookup_word(word: str):
     }
 
 
+DICTIONARY_API = "https://api.dictionaryapi.dev/api/v2/entries/en/"
+
+
 @router.get("/english-lookup/{word}")
 async def lookup_english_word(word: str):
+    # The word is a path segment upstream, not a query parameter, so it needs
+    # percent-encoding rather than params=. safe="" encodes "/" too: pasted
+    # straight in, a word like "../../health" resolves away the API path and
+    # sends the request somewhere else on the host entirely.
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-        )
+        response = await client.get(DICTIONARY_API + quote(word.strip(), safe=""))
     if response.status_code != 200:
         return {"found": False}
 
