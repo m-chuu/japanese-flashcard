@@ -75,36 +75,81 @@ def _local_jlpt(word: str, reading: str) -> str:
     )
 
 
+NOT_FOUND = {"found": False}
+
+
+async def _fetch_json(url: str, params: Optional[dict] = None):
+    """GET and decode JSON, or None if the upstream can't be used.
+
+    These lookups only pre-fill a form the user can complete by hand, so an
+    upstream that is down, slow, or returning an error page should degrade to
+    "not found" rather than failing the request.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, params=params)
+        if response.status_code != 200:
+            return None
+        return response.json()
+    except httpx.HTTPError:
+        # Timeouts, DNS failures, refused connections, protocol errors.
+        return None
+    except ValueError:
+        # Body wasn't JSON — json.JSONDecodeError subclasses ValueError.
+        return None
+
+
+def _first_dict(value) -> dict:
+    """First usable mapping in what should be a list of them."""
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                return item
+    return {}
+
+
+def _strings(value) -> List[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
 @router.get("/lookup/{word}")
 async def lookup_word(word: str):
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            "https://jisho.org/api/v1/search/words",
-            params={"keyword": word},
-        )
-        data = response.json()
+    data = await _fetch_json(
+        "https://jisho.org/api/v1/search/words", params={"keyword": word}
+    )
+    if not isinstance(data, dict):
+        return NOT_FOUND
 
-    if not data.get("data"):
-        return {"found": False}
+    entry = _first_dict(data.get("data"))
+    if not entry:
+        return NOT_FOUND
 
-    entry = data["data"][0]
-    japanese = entry["japanese"][0]
-    senses = entry["senses"][0]
+    japanese = _first_dict(entry.get("japanese"))
+    senses = _first_dict(entry.get("senses"))
 
-    reading = japanese.get("reading", "")
+    reading = japanese.get("reading") or ""
+    if not isinstance(reading, str):
+        reading = ""
+    definitions = _strings(senses.get("english_definitions"))
 
-    # Prefer Jisho JLPT tag; fall back to local word list
-    jlpt_tags = entry.get("jlpt", [])
-    if jlpt_tags:
-        jlpt_level = jlpt_tags[0].replace("jlpt-", "").upper()
-    else:
-        jlpt_level = _local_jlpt(word, reading)
+    # An entry carrying neither a reading nor a definition would fill nothing
+    # in, so report it as a miss rather than a successful empty lookup.
+    if not reading and not definitions:
+        return NOT_FOUND
+
+    # Prefer Jisho's JLPT tag; fall back to the local word list.
+    jlpt_tags = _strings(entry.get("jlpt"))
+    jlpt_level = (
+        jlpt_tags[0].replace("jlpt-", "").upper()
+        if jlpt_tags
+        else _local_jlpt(word, reading)
+    )
 
     return {
         "found": True,
         "furigana": reading,
-        "english": ", ".join(senses["english_definitions"]),
-        "parts_of_speech": senses.get("parts_of_speech", []),
+        "english": ", ".join(definitions),
+        "parts_of_speech": _strings(senses.get("parts_of_speech")),
         "jlpt_level": jlpt_level,
     }
 
@@ -118,20 +163,16 @@ async def lookup_english_word(word: str):
     # percent-encoding rather than params=. safe="" encodes "/" too: pasted
     # straight in, a word like "../../health" resolves away the API path and
     # sends the request somewhere else on the host entirely.
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(DICTIONARY_API + quote(word.strip(), safe=""))
-    if response.status_code != 200:
-        return {"found": False}
+    data = await _fetch_json(DICTIONARY_API + quote(word.strip(), safe=""))
 
-    data = response.json()
-    if not data or not isinstance(data, list):
-        return {"found": False}
+    entry = _first_dict(data)
+    if not entry:
+        return NOT_FOUND
 
-    entry = data[0]
     phonetic = entry.get("phonetic", "")
     if not phonetic:
-        for p in entry.get("phonetics", []):
-            if p.get("text"):
+        for p in entry.get("phonetics", []) or []:
+            if isinstance(p, dict) and p.get("text"):
                 phonetic = p["text"]
                 break
 
@@ -140,15 +181,19 @@ async def lookup_english_word(word: str):
     synonyms: list[str] = []
     part_of_speech = ""
 
-    for meaning in entry.get("meanings", []):
+    for meaning in entry.get("meanings", []) or []:
+        if not isinstance(meaning, dict):
+            continue
         if not part_of_speech:
             part_of_speech = meaning.get("partOfSpeech", "")
-        for defn in meaning.get("definitions", []):
+        for defn in meaning.get("definitions", []) or []:
+            if not isinstance(defn, dict):
+                continue
             if not definition:
                 definition = defn.get("definition", "")
             if not example:
                 example = defn.get("example", "")
-        synonyms.extend(meaning.get("synonyms", []))
+        synonyms.extend(_strings(meaning.get("synonyms")))
 
     return {
         "found": True,
